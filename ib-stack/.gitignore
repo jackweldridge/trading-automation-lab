@@ -1,0 +1,20 @@
+# Secrets — never commit
+.env
+.env.*
+
+# Runtime state and logs
+bridge-state/
+*.log
+ib_logs*.tar.gz
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor / backup cruft
+*.bak
+*.bak.*
+*.save
+
+# keep the template
+!.env.example

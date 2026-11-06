@@ -1,0 +1,50 @@
+# IB Gateway + HTTP bridge — paper-trading stack for the Trading Automation Lab.
+#
+# Secrets are NOT in this file. Copy .env.example to .env and fill it in; this
+# compose reads those values at runtime. See the README for setup.
+#
+# Paper vs live is one change: TRADING_MODE + IB_PORT below (paper = 4002,
+# live = 4001). Everything else — the bridge, the workflows, the order code —
+# is identical. Stay on paper until you have proven your system.
+
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    container_name: ib-gateway
+    restart: unless-stopped
+    network_mode: host                 # binds directly to the server's localhost
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TRADING_MODE: paper              # paper = port 4002; live would be 4001
+      TWO_FA_HANDLING: ibkr
+      AUTO_RESTART_TIME: "07:00 AM"    # one safe self-restart a day (keeps you logged in)
+      BIND_ADDRESS: "127.0.0.1"        # API reachable only from this server
+      READ_ONLY_API: "no"
+      TIME_ZONE: ${TIME_ZONE:-Etc/UTC}
+      TZ: ${TIME_ZONE:-Etc/UTC}
+    volumes:
+      - ib-gateway-jts:/home/ibgateway/Jts
+
+  ib-http-bridge:
+    build:
+      context: ./ib-http-bridge
+    container_name: ib-http-bridge
+    restart: unless-stopped
+    depends_on:
+      - ib-gateway
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # lets the bridge restart the gateway (Module 6)
+      - ./bridge-state:/state
+    environment:
+      IB_HOST: "127.0.0.1"
+      IB_PORT: "4002"                  # paper; live is 4001
+      IB_ACCOUNT: ${IB_ACCOUNT}
+      IB_CLIENT_ID: "8888"
+      IB_CONNECT_TIMEOUT: "15"
+      GATEWAY_RESTART_COOLDOWN_SEC: "900"
+      GATEWAY_RESTART_STATE_FILE: "/state/gw_restart_history.json"
+
+volumes:
+  ib-gateway-jts:
