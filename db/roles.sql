@@ -1,12 +1,13 @@
--- Trading Automation Lab — database roles (Module 3)
--- Two roles: an owner that writes, and a read-only role everything else uses.
--- CHANGE both passwords before running. Run the first block as the superuser.
+-- Trading Automation Lab — read-only database role (Module 3)
+--
+-- Your owner role (screener) and the market_data database already exist: the
+-- Postgres container created them from POSTGRES_USER / POSTGRES_DB back in 1.2.
+-- This file adds a read-only role (claude_ro) that everything except your
+-- loaders uses, so a wrong query in a read-only workflow cannot change data.
+--
+-- CHANGE the password below, then run this file as the screener (owner) role,
+-- connected to the market_data database.
 
--- === Run as the default superuser ===
-CREATE ROLE screener LOGIN PASSWORD 'change-me-owner-password';
-CREATE DATABASE market_data OWNER screener;
-
--- === Now connect to the market_data database and run the rest ===
 CREATE ROLE claude_ro LOGIN PASSWORD 'change-me-readonly-password';
 GRANT CONNECT ON DATABASE market_data TO claude_ro;
 GRANT USAGE ON SCHEMA public TO claude_ro;
