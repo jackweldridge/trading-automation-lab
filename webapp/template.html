@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trading Lab — Positions</title>
+<style>
+  body { font: 15px system-ui, sans-serif; margin: 0; background: #0d0d12; color: #f6f7fb; }
+  header { padding: 16px 20px; border-bottom: 1px solid #2a2c3d; }
+  h1 { font-size: 18px; margin: 0; }
+  .status { font-size: 12px; color: #9096ad; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 14px; text-align: right; border-bottom: 1px solid #1a1a24; }
+  th:first-child, td:first-child { text-align: left; }
+  .up { color: #22c55e; } .down { color: #fb5a72; }
+  .flash { transition: background .4s; }
+  button { background: #9c64ff; color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Open Positions</h1>
+  <div class="status" id="status">price feed: connecting…</div>
+</header>
+
+<main>
+  @@positions
+</main>
+
+<p style="padding:0 20px">
+  <button id="proposeBtn" data-symbol="AAPL">Propose trade: AAPL</button>
+  <span id="proposeMsg" class="status"></span>
+</p>
+
+<script>
+// Live prices via the nginx-proxied /live/ stream (the provider token stays on the server).
+const statusEl = document.getElementById("status");
+try {
+  const es = new EventSource("/live/");
+  es.onopen = () => statusEl.textContent = "price feed: live";
+  es.onerror = () => statusEl.textContent = "price feed: delayed — showing last values";
+  es.onmessage = (e) => {
+    const { symbol, price } = JSON.parse(e.data);
+    document.querySelectorAll(`tr[data-symbol="${symbol}"]`).forEach(row => {
+      const entry = parseFloat(row.dataset.entry), shares = parseFloat(row.dataset.shares);
+      const priceCell = row.querySelector(".live-price");
+      const pnlCell = row.querySelector(".live-pnl");
+      priceCell.textContent = price.toFixed(2);
+      const pnl = (price - entry) * shares;             // simple P&L; convert by FX in real use
+      pnlCell.textContent = pnl.toFixed(2);
+      pnlCell.className = "live-pnl " + (pnl >= 0 ? "up" : "down");
+      priceCell.classList.add("flash");
+      setTimeout(() => priceCell.classList.remove("flash"), 400);
+    });
+  };
+} catch (err) { statusEl.textContent = "price feed: unavailable"; }
+
+// The trade button PROPOSES — it never places an order. It POSTs to the n8n
+// approval path (via nginx, which adds the token). You still approve in Telegram.
+document.getElementById("proposeBtn").addEventListener("click", async (ev) => {
+  const msg = document.getElementById("proposeMsg");
+  msg.textContent = "sending…";
+  try {
+    await fetch("/propose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol: ev.target.dataset.symbol, side: "BUY" })
+    });
+    msg.textContent = "proposal sent — check Telegram";
+  } catch (e) { msg.textContent = "failed to send"; }
+});
+</script>
+</body>
+</html>
