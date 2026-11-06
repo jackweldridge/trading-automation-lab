@@ -9,6 +9,12 @@
 *.log
 *.tar.gz
 
+# Backups / dumps — never land these in this public repo
+*.sql
+!db/*.sql
+workflows.json
+backups/
+
 # Python
 __pycache__/
 *.pyc
@@ -17,7 +23,3 @@ __pycache__/
 *.bak
 *.bak.*
 *.save
-
-# keep the template
-!.env.example
-!**/.env.example
