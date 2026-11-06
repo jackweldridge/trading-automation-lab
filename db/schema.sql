@@ -106,3 +106,26 @@ CREATE TABLE IF NOT EXISTS trading_enabled (
   enabled  boolean DEFAULT true
 );
 INSERT INTO trading_enabled (id, enabled) VALUES (1, true) ON CONFLICT (id) DO NOTHING;
+
+-- Agent verdicts (Module 9): an LLM reads data and writes a structured opinion
+-- here. It is DATA for you to read, never an instruction the system acts on.
+CREATE TABLE IF NOT EXISTS conviction_reviews (
+  id          bigserial PRIMARY KEY,
+  ticker      text NOT NULL,
+  verdict     text,                 -- e.g. 'confirms' / 'questions'
+  conviction  int,                  -- 1-5
+  key_points  text,
+  risks       text,
+  as_of       timestamptz DEFAULT now()
+);
+
+-- The one interface between "what to trade" and everything downstream (Module 9.4).
+-- Any method (a screen, an ML ranker, an AI panel) writes rows; the rest only reads.
+CREATE TABLE IF NOT EXISTS shortlist (
+  ticker  text NOT NULL,
+  score   double precision,         -- or a rank
+  source  text,                     -- which method produced this row
+  reason  text,
+  as_of   date NOT NULL DEFAULT current_date,
+  PRIMARY KEY (ticker, source, as_of)
+);
