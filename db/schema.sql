@@ -48,3 +48,44 @@ CREATE TABLE IF NOT EXISTS earnings_calendar (
   report_date  date NOT NULL,
   PRIMARY KEY (ticker, report_date)
 );
+
+-- Trade journal (Module 5): one row per trade, written the moment it's placed.
+-- Also used to record refused proposals (status = 'Rejected', with a reason).
+CREATE TABLE IF NOT EXISTS trade_log (
+  id            bigserial PRIMARY KEY,
+  ticker        text NOT NULL,
+  strategy      text,                    -- the reason / setup
+  entry_price   double precision,
+  initial_stop  double precision,        -- record where the stop STARTED
+  target        double precision,
+  shares        integer,
+  risk_amount   double precision,        -- money at risk, in your account currency
+  status        text DEFAULT 'Open',     -- Open / Closed / Rejected / Expired
+  reject_reason text,                    -- set when a proposal is refused
+  placed_at     timestamptz DEFAULT now()
+);
+
+-- 14-day ATR (average true range), used to size positions in Module 5.
+-- This is the simple moving-average version; Wilder's smoothing is the
+-- production refinement, but this is enough to size a trade from volatility.
+CREATE OR REPLACE VIEW v_atr14 AS
+WITH tr AS (
+  SELECT
+    ticker,
+    date,
+    greatest(
+      high - low,
+      abs(high - lag(close) OVER w),
+      abs(low  - lag(close) OVER w)
+    ) AS true_range
+  FROM daily_prices
+  WINDOW w AS (PARTITION BY ticker ORDER BY date)
+)
+SELECT
+  ticker,
+  date,
+  avg(true_range) OVER (
+    PARTITION BY ticker ORDER BY date
+    ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
+  ) AS atr14
+FROM tr;
