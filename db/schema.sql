@@ -89,3 +89,20 @@ SELECT
     ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
   ) AS atr14
 FROM tr;
+
+-- Restart lock (Module 6): one row so only one gateway restart can run at a time.
+-- expires_at lets a crashed holder's lock be treated as free (never wedge shut).
+CREATE TABLE IF NOT EXISTS gateway_restart_lock (
+  id          int PRIMARY KEY DEFAULT 1,
+  locked_at   timestamptz,
+  locked_by   text,
+  expires_at  timestamptz
+);
+INSERT INTO gateway_restart_lock (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- Kill switch (Module 6): every order path reads this first. false = place no new orders.
+CREATE TABLE IF NOT EXISTS trading_enabled (
+  id       int PRIMARY KEY DEFAULT 1,
+  enabled  boolean DEFAULT true
+);
+INSERT INTO trading_enabled (id, enabled) VALUES (1, true) ON CONFLICT (id) DO NOTHING;
