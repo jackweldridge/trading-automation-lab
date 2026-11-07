@@ -9,8 +9,12 @@ and follow the lessons.
 - **`ib-stack/`** — IB Gateway + HTTP bridge (Module 2b). A paper-trading stack:
   the official gateway container plus a small FastAPI bridge that exposes simple
   HTTP endpoints (`/health`, `/account`, `/positions`, `/order`, …) for n8n.
-
-More modules' reference files will be added here over time.
+- **`db/`** — database schema and roles (Module 3): `schema.sql` (tables and
+  views, run once as the owner) and `roles.sql` (the read-only `claude_ro` role).
+- **`webapp/`** — the private positions site (Module 7): `build.py`,
+  `queries.sql`, `template.html` and `nginx-site.conf`.
+- **`scripts/`** — operational helpers (Module 8): `backup.sh`, a template that
+  exports your n8n workflows and dumps the database to a private backup repo.
 
 ## Using it
 

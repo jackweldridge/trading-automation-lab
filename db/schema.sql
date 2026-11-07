@@ -129,3 +129,6 @@ CREATE TABLE IF NOT EXISTS shortlist (
   as_of   date NOT NULL DEFAULT current_date,
   PRIMARY KEY (ticker, source, as_of)
 );
+
+-- Override codes (Module 5.2): record when a rule was deliberately overridden.
+ALTER TABLE trade_log ADD COLUMN IF NOT EXISTS override_codes text;
