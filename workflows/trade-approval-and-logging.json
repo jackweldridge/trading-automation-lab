@@ -1,0 +1,1425 @@
+{
+  "updatedAt": "2026-10-06T15:43:47.353Z",
+  "createdAt": "2026-05-17T05:28:18.504Z",
+  "id": "KOgO7aRzLyL5EZy6",
+  "name": "Stock Analysls - Trade Approval & Logging ✅",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://172.17.0.1:8080/order",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"symbol\": \"{{ $('When Executed by Another Workflow').first().json.Ticker}}\",\n  \"exchange\": \"{{ $('Get IBKR IDs').item.json.exchange }}\",\n  \"action\": \"BUY\",\n  \"quantity\": \"{{ $('When Executed by Another Workflow').first().json.Quantity}}\",\n  \"order_type\": \"LMT\",\n  \"limit_price\": \"{{ ($('When Executed by Another Workflow').first().json.LimitPrice * 1.005).toFixed(2) }}\",\n  \"stop_loss\": \"{{ $('When Executed by Another Workflow').first().json.StopLoss}}\",\n  \"take_profit\": \"{{ $('When Executed by Another Workflow').first().json.TakeProfit}}\"\n}",
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "0b228b2a-030b-4de4-b3b0-4e0a2b274bab",
+      "name": "Execute Trades via Interactive Brokers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        16,
+        256
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "http://172.17.0.1:8080/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $('When Executed by Another Workflow').first().json.Ticker}}"
+            },
+            {
+              "name": "exchange",
+              "value": "={{ $('When Executed by Another Workflow').first().json.Exchange}}"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -656,
+        32
+      ],
+      "id": "4e432a24-69e6-466c-9224-6fe3b2ce5dd1",
+      "name": "Get IBKR IDs",
+      "executeOnce": false,
+      "alwaysOutputData": true,
+      "retryOnFail": false,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * secdef/search handler for n8n Code node\n * - Safe against missing fields\n * - Keeps only STK\n * - Dedupes by conId\n * - Keeps only LSE / NYSE / NASDAQ\n * - Sorts by exchange preference\n * - Returns all valid matches\n */\n\nconst rawItems = $input.all();\n\n// normalize json payloads\nconst data = rawItems\n  .map(i => i.json)\n  .filter(i => i && typeof i === 'object');\n\n// helper: STK check (new structure)\nfunction isStock(item) {\n  return item.secType === 'STK';\n}\n\n// helper: exchange text\nfunction getExchangeText(item) {\n  return (\n    (item.exchange || '') + ' ' +\n    (item.primaryExchange || '')\n  ).toUpperCase();\n}\n\nfunction isAllowedExchange(item) {\n  const t = getExchangeText(item);\n  return t.includes('LSE') || t.includes('NYSE') || t.includes('NASDAQ') || t.includes('AMEX');\n}\n\n// filter STK + allowed exchanges\nconst filtered = data.filter(i =>\n  isStock(i) && isAllowedExchange(i)\n);\n\nif (filtered.length === 0) {\n  return [{\n    json: {\n      error: 'No LSE/NYSE/NASDAQ/AMEX STK instruments found',\n      inputCount: data.length\n    }\n  }];\n}\n\n// dedupe by conId (note capital I)\nconst seen = new Set();\nconst unique = [];\n\nfor (const item of filtered) {\n  if (!item.conId || item.conId === -1) continue;\n  if (seen.has(item.conId)) continue;\n  seen.add(item.conId);\n  unique.push(item);\n}\n\n// exchange ranking\nfunction rank(item) {\n  const t = getExchangeText(item);\n  if (t.includes('LSE')) return 1;\n  if (t.includes('NYSE')) return 2;\n  if (t.includes('NASDAQ')) return 3;\n  if (t.includes('AMEX')) return 4;\n  return 9;\n}\n\n// sort by preference\nunique.sort((a, b) => rank(a) - rank(b));\n\n// return all matches\nreturn unique.map(i => ({ json: i }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        256
+      ],
+      "id": "974b4214-c2f4-4241-ac44-073a66e15590",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "message": "=🚨Buy Request🚨\nType: {{ $json.TriggerEvent === \"Kotegawa MR\" ? \"Kotegawa MR ⚠️\" : $json.TriggerEvent }}\nAI Approved? {{ $json.ai_approved }}\nTicker: {{ $json.Ticker }}\nCompany: {{ $json.CompanyName }}\nSub-Industry: {{ $json.SubIndustry }}-\nRationale: {{ $json.Explanation }}\nVolatility: {{ $json.DailyATRPct }}\nCurrent Price: {{ $json.LimitPrice }}\nTake Profit: {{ $json.TakeProfit}}\nSell Price: {{ $json.StopLoss }}\nInvestment: {{ $json.Investment}}",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double"
+          }
+        },
+        "options": {
+          "limitWaitTime": {
+            "values": {
+              "resumeAmount": 3,
+              "resumeUnit": "minutes"
+            }
+          },
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1136,
+        32
+      ],
+      "id": "feb25c8f-0468-4180-ac17-0d63bbba35f2",
+      "name": "Trade Approval Request",
+      "webhookId": "d79434ff-debf-4d92-bd33-790eadc1580c",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "bd6d4afd-2e1a-4988-997a-b406a398691f",
+              "leftValue": "={{ $json.data.approved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -912,
+        32
+      ],
+      "id": "0f2758b0-dbf5-49ad-b562-058af243a244",
+      "name": "Approval Check"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Response: {{ \n  (($json.orders || []).flatMap(o => o.log || []).some(l => l.errorCode === 201 && /cash needed/i.test(l.message || '')))\n    ? 'Not Enough 💰'\n    : $json.orders[0].status + ' ' + (['Inactive','Cancelled','ApiCancelled','Rejected'].includes($json.orders[0].status) ? '❌' : '✅')\n}}\nTicker: {{ $json.contract.symbol }}\nShares Bought: {{ $('When Executed by Another Workflow').first().json.Quantity }}\nInvested (Approx): {{ $('When Executed by Another Workflow').first().json.Investment }}\nAverage Fill Price: {{\nNumber($json.execution?.avgFillPrice ?? 0) === 0\n  ? \"n/a\"\n  : $json.execution.avgFillPrice\n}}\nSaving: {{\nNumber($json.execution?.avgFillPrice ?? 0) === 0\n  ? \"n/a\"\n  : (\n      Number($json.orders?.[0]?.lmtPrice ?? 0) -\n      Number($json.execution.avgFillPrice)\n    ).toFixed(2)\n}}\nStop/Loss: {{ $('When Executed by Another Workflow').first().json.StopLoss }},\nTake Profit: {{ $('When Executed by Another Workflow').first().json.TakeProfit }}\nAdditional: {{ (($json.orders || []).flatMap(o => o.log || []).find(l => l.errorCode === 201)?.message || '').replace(/<br\\s*\\/?>/gi, ' ') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        240
+      ],
+      "id": "7dd5b52c-dfc0-459c-a536-8f4ba793d6bf",
+      "name": "Execution Confirmation",
+      "webhookId": "5b1b2030-0031-4d37-8835-b24ac98d92e8",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Rejection Acknowledged ❌\nTicker: {{ $('When Executed by Another Workflow').item.json.Ticker }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        464,
+        -96
+      ],
+      "id": "0b9b5373-ad36-47f2-aa8e-ad54d9421c99",
+      "name": "Rejection Confirmation",
+      "webhookId": "a5f17637-c356-4e06-aaca-1a4127b06e8d",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_DOC_ID",
+          "mode": "list",
+          "cachedResultName": "Ticker List (NYSE)",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_DOC_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 656505008,
+          "mode": "list",
+          "cachedResultName": "Logged Trades",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_DOC_ID/edit#gid=656505008"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Ticker": "={{ $('Execute Trades via Interactive Brokers').item.json.contract.symbol }}",
+            "Company": "={{ $('When Executed by Another Workflow').first().json.CompanyName }}",
+            "Rationale": "={{ $('When Executed by Another Workflow').first().json.Explanation }}",
+            "Market Price": "={{ \n  $('Execute Trades via Interactive Brokers').item.json.fills?.[0]?.price \n  || $('When Executed by Another Workflow').first().json.LimitPrice }}",
+            "Stop/Loss": "={{ $('When Executed by Another Workflow').first().json.StopLoss }}",
+            "Take-Profit": "={{ $('When Executed by Another Workflow').first().json.TakeProfit }}",
+            "Quantity": "={{ $('When Executed by Another Workflow').first().json.Quantity }}",
+            "n8n Runtime": "={{ $('When Executed by Another Workflow').first().json.CurrentDate }}",
+            "Source": "={{ $('When Executed by Another Workflow').first().json.TriggerEvent }}",
+            "Approximate Cost": "={{ $('When Executed by Another Workflow').first().json.Investment }}"
+          },
+          "matchingColumns": [
+            "ds"
+          ],
+          "schema": [
+            {
+              "id": "Ticker",
+              "displayName": "Ticker",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Rationale",
+              "displayName": "Rationale",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Market Price",
+              "displayName": "Market Price",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Stop/Loss",
+              "displayName": "Stop/Loss",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Take-Profit",
+              "displayName": "Take-Profit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Quantity",
+              "displayName": "Quantity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Approximate Cost",
+              "displayName": "Approximate Cost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "n8n Runtime",
+              "displayName": "n8n Runtime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        688,
+        432
+      ],
+      "id": "c4d077b0-5213-4cb2-987c-3ee35cfd0693",
+      "name": "Trade Log",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "MFQjJQmcHDjkZqeV",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9ad9b1c0-688c-4595-be90-877c0cc148ff",
+              "leftValue": "={{ !$json.symbol }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -432,
+        -80
+      ],
+      "id": "005e9576-0d59-438a-b642-453acdf85801",
+      "name": "NotFound"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $('When Executed by Another Workflow').first().json.Ticker}} not recognised by IBRK",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -208,
+        -96
+      ],
+      "id": "48deeb73-e9ea-4770-a100-02dd33b8063c",
+      "name": "IBKR Symbol Missing",
+      "webhookId": "3a392ca7-db25-4abc-b52c-5d6cc6e21dcb",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "message": "=Do you want to try {{ $('Loop Over Items').item.json.symbol.replace(/\\.$/, '') }} instead?",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double"
+          }
+        },
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        16,
+        -96
+      ],
+      "id": "46378c3c-4b14-4e3f-a479-6d33e50993b3",
+      "name": "Trade Approval Request1",
+      "webhookId": "1cd7fcd5-bac6-4b61-a0e3-e5c53ff97ac5",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "bd6d4afd-2e1a-4988-997a-b406a398691f",
+              "leftValue": "={{ $('Trade Approval Request1').item.json.data.approved}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        240,
+        32
+      ],
+      "id": "d6459cf4-167e-4716-baa5-bf9c4c9ac04e",
+      "name": "Approval Check1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3998119f-4d01-4ca9-8b2f-07bf789ed42d",
+              "leftValue": "={{ $json.result.text }}",
+              "rightValue": "Response: Inactive",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            },
+            {
+              "id": "53dee889-b7da-488e-8f81-277dcb303f4d",
+              "leftValue": "={{ $json.result.text }}",
+              "rightValue": "Not Enough",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        464,
+        240
+      ],
+      "id": "53f6c7cf-2814-4133-9f74-54fb012eac8f",
+      "name": "Successful Trade Check"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "AI7cbeyVbVBJ1geZ",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/AI7cbeyVbVBJ1geZ",
+          "cachedResultName": "Stock Analysis - Gateway Reconnect 🔌"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -432,
+        256
+      ],
+      "id": "f50c77d9-64d6-4d72-a150-1d0812599f54",
+      "name": "Call 'Stock Analysis - Gateway Reconnect 🔌'1"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "Ticker"
+            },
+            {
+              "name": "LimitPrice",
+              "type": "number"
+            },
+            {
+              "name": "StopLoss",
+              "type": "number"
+            },
+            {
+              "name": "TakeProfit",
+              "type": "number"
+            },
+            {
+              "name": "Quantity",
+              "type": "number"
+            },
+            {
+              "name": "CompanyName"
+            },
+            {
+              "name": "TriggerEvent"
+            },
+            {
+              "name": "Exchange"
+            },
+            {
+              "name": "Explanation"
+            },
+            {
+              "name": "Investment",
+              "type": "number"
+            },
+            {
+              "name": "DailyATRPct",
+              "type": "number"
+            },
+            {
+              "name": "Type"
+            },
+            {
+              "name": "SubIndustry"
+            },
+            {
+              "name": "CurrentDate"
+            },
+            {
+              "name": "planned_risk",
+              "type": "number"
+            },
+            {
+              "name": "binding_constraint"
+            },
+            {
+              "name": "instrument_type"
+            },
+            {
+              "name": "atr_at_entry",
+              "type": "number"
+            },
+            {
+              "name": "stop_distance_pct",
+              "type": "number"
+            },
+            {
+              "name": "stop_clamped",
+              "type": "boolean"
+            },
+            {
+              "name": "fx_rate_at_entry",
+              "type": "number"
+            },
+            {
+              "name": "primary_exchange"
+            },
+            {
+              "name": "RiskBudgetGbp",
+              "type": "number"
+            },
+            {
+              "name": "RiskFillPct",
+              "type": "number"
+            },
+            {
+              "name": "ai_approved",
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1360,
+        32
+      ],
+      "id": "5eee825d-2e4d-4bef-9394-d8f98389729d",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Execution Error: {{ $json.contract.symbol }} ⛔️\nSomething went wrong with IBKR order",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        432
+      ],
+      "id": "55a43770-f2e1-43a9-91a1-173cf8e4adbd",
+      "name": "Execution Error",
+      "webhookId": "5b1b2030-0031-4d37-8835-b24ac98d92e8",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "trade_log",
+          "mode": "list",
+          "cachedResultName": "trade_log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "market_price": "={{ \n  $('Execute Trades via Interactive Brokers').item.json.fills?.[0]?.price \n  || $('When Executed by Another Workflow').first().json.LimitPrice }}",
+            "stop_loss": "={{ $('When Executed by Another Workflow').first().json.StopLoss }}",
+            "take_profit": "={{ $('When Executed by Another Workflow').first().json.TakeProfit }}",
+            "quantity": "={{ $('When Executed by Another Workflow').first().json.Quantity }}",
+            "approx_cost": "={{ $('When Executed by Another Workflow').first().json.Investment }}",
+            "ticker": "={{ $('Execute Trades via Interactive Brokers').item.json.contract.symbol }}",
+            "company": "={{ $('When Executed by Another Workflow').first().json.CompanyName }}",
+            "rationale": "={{ $('When Executed by Another Workflow').first().json.Explanation }}",
+            "strategy": "={{ (() => { try { return $('When Executed by Another Workflow').first().json.TriggerEvent ?? 'DIY'; } catch { return 'Manual Watch'; } })() }}",
+            "n8n_runtime": "={{ $('When Executed by Another Workflow').first().json.CurrentDate }}",
+            "perm_id": "={{ $('Execute Trades via Interactive Brokers').item.json.orders.find(o => o.parentId === 0).permId }}",
+            "status": "={{ $('Execute Trades via Interactive Brokers').item.json.orders.find(o => o.parentId === 0).status.toLowerCase() }}",
+            "planned_risk": "={{ $('When Executed by Another Workflow').first().json.planned_risk }}",
+            "atr_at_entry": "={{ $('When Executed by Another Workflow').first().json.atr_at_entry }}",
+            "stop_distance_pct": "={{ $('When Executed by Another Workflow').first().json.stop_distance_pct }}",
+            "fx_rate_at_entry": "={{ $('When Executed by Another Workflow').first().json.fx_rate_at_entry }}",
+            "binding_constraint": "={{ $('When Executed by Another Workflow').first().json.binding_constraint }}",
+            "instrument_type": "={{ $('When Executed by Another Workflow').first().json.instrument_type }}",
+            "primary_exchange": "={{ $('When Executed by Another Workflow').first().json.exchange }}",
+            "stop_clamped": "={{ $('When Executed by Another Workflow').first().json.stop_clamped }}",
+            "risk_budget_gbp": "={{ $('When Executed by Another Workflow').first().json.risk_budget_gbp }}",
+            "risk_fill_pct": "={{ $('When Executed by Another Workflow').first().json.risk_fill_pct }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ticker",
+              "displayName": "ticker",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "rationale",
+              "displayName": "rationale",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "market_price",
+              "displayName": "market_price",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "stop_loss",
+              "displayName": "stop_loss",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "take_profit",
+              "displayName": "take_profit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "quantity",
+              "displayName": "quantity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "approx_cost",
+              "displayName": "approx_cost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "n8n_runtime",
+              "displayName": "n8n_runtime",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "strategy",
+              "displayName": "strategy",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "inserted_at",
+              "displayName": "inserted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "perm_id",
+              "displayName": "perm_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "planned_risk",
+              "displayName": "planned_risk",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "actual_entry",
+              "displayName": "actual_entry",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "filled_at",
+              "displayName": "filled_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "exit_price",
+              "displayName": "exit_price",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "exit_at",
+              "displayName": "exit_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "exit_reason",
+              "displayName": "exit_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "commission",
+              "displayName": "commission",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "realised_pnl",
+              "displayName": "realised_pnl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "realised_r",
+              "displayName": "realised_r",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "binding_constraint",
+              "displayName": "binding_constraint",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "instrument_type",
+              "displayName": "instrument_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "atr_at_entry",
+              "displayName": "atr_at_entry",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "stop_distance_pct",
+              "displayName": "stop_distance_pct",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "stop_clamped",
+              "displayName": "stop_clamped",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fx_rate_at_entry",
+              "displayName": "fx_rate_at_entry",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "primary_exchange",
+              "displayName": "primary_exchange",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "risk_budget_gbp",
+              "displayName": "risk_budget_gbp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "risk_fill_pct",
+              "displayName": "risk_fill_pct",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        688,
+        240
+      ],
+      "id": "432a4df4-9226-4098-8712-de5f55070732",
+      "name": "Trade Log1",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "deleteTable",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "pivot_watch",
+          "mode": "list",
+          "cachedResultName": "pivot_watch"
+        },
+        "deleteCommand": "delete",
+        "where": {
+          "values": [
+            {
+              "column": "ticker",
+              "value": "={{ $('Execute Trades via Interactive Brokers').item.json.contract.symbol }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        912,
+        240
+      ],
+      "id": "f5b6358f-2d72-4bf9-be64-06b3b888a401",
+      "name": "Delete table or rows1",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "intraday_rvol_rejections",
+          "mode": "list",
+          "cachedResultName": "intraday_rvol_rejections"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "rejected": true,
+            "ticker": "={{ $('When Executed by Another Workflow').item.json.Ticker.replace(/ /g, '-') }}",
+            "rejected_at": "={{ $now.format('yyyy-MM-dd') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ticker",
+              "displayName": "ticker",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rejected",
+              "displayName": "rejected",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rejected_at",
+              "displayName": "rejected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -672,
+        -432
+      ],
+      "id": "35d713b3-8f1b-40b6-94e1-5771f25e9eeb",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Execute Trades via Interactive Brokers": {
+      "main": [
+        [
+          {
+            "node": "Execution Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execution Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get IBKR IDs": {
+      "main": [
+        [
+          {
+            "node": "NotFound",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Stock Analysis - Gateway Reconnect 🔌'1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Execute Trades via Interactive Brokers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trade Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Approval Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Check": {
+      "main": [
+        [
+          {
+            "node": "Get IBKR IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execution Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Successful Trade Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rejection Confirmation": {
+      "main": [
+        []
+      ]
+    },
+    "Trade Log": {
+      "main": [
+        []
+      ]
+    },
+    "NotFound": {
+      "main": [
+        [
+          {
+            "node": "IBKR Symbol Missing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IBKR Symbol Missing": {
+      "main": [
+        [
+          {
+            "node": "Trade Approval Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trade Approval Request1": {
+      "main": [
+        [
+          {
+            "node": "Approval Check1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Check1": {
+      "main": [
+        [
+          {
+            "node": "Get IBKR IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rejection Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Successful Trade Check": {
+      "main": [
+        [
+          {
+            "node": "Trade Log1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Trade Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Call 'Stock Analysis - Gateway Reconnect 🔌'1": {
+      "main": [
+        [
+          {
+            "node": "Get IBKR IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Trade Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trade Log1": {
+      "main": [
+        [
+          {
+            "node": "Delete table or rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table": {
+      "main": [
+        [
+          {
+            "node": "Rejection Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "hFzGgakH6rLpa0MU",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "versionId": "a5cdc8ed-f2c0-4e38-afd9-21e50907fccb",
+  "activeVersionId": "a5cdc8ed-f2c0-4e38-afd9-21e50907fccb",
+  "versionCounter": 388,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-05-17T05:28:18.506Z",
+      "createdAt": "2026-05-17T05:28:18.506Z",
+      "role": "workflow:owner",
+      "workflowId": "KOgO7aRzLyL5EZy6",
+      "projectId": "PjanIvva1Mlx8hZV",
+      "project": {
+        "updatedAt": "2026-02-14T16:55:09.426Z",
+        "createdAt": "2026-02-14T16:15:58.481Z",
+        "id": "PjanIvva1Mlx8hZV",
+        "name": "Jack Eldridge <you@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "b5463656-ed61-440e-acc2-9c43a8cb5056"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version a5cdc8ed",
+    "description": ""
+  }
+}

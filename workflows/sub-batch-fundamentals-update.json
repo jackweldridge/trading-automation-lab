@@ -1,0 +1,385 @@
+{
+  "updatedAt": "2026-10-07T16:47:35.777Z",
+  "createdAt": "2026-09-26T07:49:33.402Z",
+  "id": "hp90sA7U7yZe93Sh",
+  "name": "Sub Workflow - Batch Fundamentals Update",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "url": "=https://eodhd.com/api/v1.1/fundamentals/{{ $json.ticker}}.US",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter",
+              "value": "General::FiscalYearEnd,General::Code,General::Sector,General::Industry,General::Name,General::Exchange,General::CurrencyCode,General::CountryISO,General::GicSector,General::GicGroup,General::GicIndustry,General::GicSubIndustry,General::IPODate,General::Type,General::ISIN,General::CIK,General::IsDelisted,Highlights,Valuation,SharesStats,Technicals,Financials::Balance_Sheet::quarterly,Financials::Income_Statement::quarterly,Financials::Cash_Flow::quarterly,Earnings::History"
+            },
+            {
+              "name": "api_token",
+              "value": "YOUR_EODHD_KEY"
+            },
+            {
+              "name": "fmt",
+              "value": "json"
+            },
+            {
+              "name": "from",
+              "value": "=2018-01-01"
+            },
+            {
+              "name": "to",
+              "value": "={{ $now.format('yyyy-MM-dd')}}"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -224,
+        -16
+      ],
+      "id": "c8730935-0602-40d2-84f7-eaac9affafab",
+      "name": "Fundamentals1",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * n8n Code node — inside a SplitInBatches loop, batch size 1.\n *\n *   Ticker Extraction -> New Fundamentals Loop (size 1) -> HTTP Request\n *     -> THIS NODE -> Switch on `target` -> 4 Postgres nodes -> back to loop\n *\n * Emits FIVE row shapes, keyed by `target`:\n *   'company'  -> one row  (General:: fields, fiscal calendar)\n *   'quality'  -> 0-n rows (data defects found in THIS payload)\n *   'fact'     -> quarterly/yearly statement facts\n *   'market_stats' -> one wide row (beta, share counts, short interest,\n *                     ownership %, analyst target) - the fields that are NOT\n *                     derivable from the statements and are currency-safe.\n *                     Everything else the old snapshot carried (revenue, EBITDA,\n *                     per-share values, valuation ratios) is now derived in USD\n *                     by the fundamentals_snapshot view and is dropped here.\n *   'earnings' -> 0-n rows (EPS actual/estimate/surprise per quarter — the\n *                 only source of analyst estimates; not derivable from statements)\n *\n * General:: fields are read generically, so Sector/Industry/GicSector/etc.\n * are picked up without code changes as EODHD adds them.\n *\n * FiscalYearEnd arrives as a month NAME. A month is not a date, so three\n * fields are emitted: month number, last calendar day (leap-aware), and an\n * ISO date anchored to the most recent FY end on or before the latest quarter.\n *\n * Values are NOT sign-normalised. capitalExpenditures is POSITIVE in EODHD and\n * freeCashFlow is pre-computed. Fix signs downstream, deliberately, once.\n */\n\n// ---------------------------------------------------------------- config ----\n\nconst SOURCE = 'eodhd';\nconst LOOP_NODE = 'New Fundamentals Loop';\n\n// Optional Set node BEFORE the loop stamping as_of = {{ $now.toISO() }} so\n// every ticker in one sweep shares a timestamp. null = per-iteration now().\nconst RUN_STAMP_NODE = null;\nconst RUN_STAMP_FIELD = 'as_of';\n\nconst TICKER_FIELDS = ['ticker', 'Ticker', 'symbol', 'Symbol', 'code', 'Code'];\n\nconst EXCHANGE_SUFFIXES = new Set([\n  'US', 'LSE', 'TO', 'V', 'AS', 'PA', 'F', 'XETRA', 'MI', 'MC', 'ST',\n  'HE', 'CO', 'OL', 'SW', 'VI', 'IR', 'BR', 'LS', 'AU', 'HK', 'TSE',\n]);\n\nconst EMIT_SUMMARY = false;   // debug only; Postgres nodes expect real rows\n\nconst PERIODIC_KEY = /^Financials::([A-Za-z_]+)::(quarterly|yearly)$/;\nconst GENERAL_FLAT = /^General::(.+)$/;\n\nconst METADATA_KEYS = new Set(['date', 'filing_date', 'currency_symbol']);\n\nconst ATTRIBUTE_OVERRIDES = {\n  '52WeekHigh': 'week_52_high',\n  '52WeekLow': 'week_52_low',\n  '50DayMA': 'ma_50',\n  '200DayMA': 'ma_200',\n  nonCurrrentAssetsOther: 'non_current_assets_other', // sic: EODHD triple-r\n  capitalSurpluse: 'capital_surplus',                 // sic: EODHD typo\n  totalLiab: 'total_liabilities',\n  deferredLongTermLiab: 'deferred_long_term_liabilities',\n  otherLiab: 'other_liabilities',\n  otherCurrentLiab: 'other_current_liabilities',\n};\n\n// General:: -> company row columns. Add a line when EODHD adds a field.\nconst COMPANY_FIELDS = {\n  Name: 'name',\n  Exchange: 'exchange',\n  CurrencyCode: 'currency',\n  CountryISO: 'country',\n  Sector: 'sector',\n  Industry: 'industry',\n  GicSector: 'gic_sector',\n  GicGroup: 'gic_group',\n  GicIndustry: 'gic_industry',\n  GicSubIndustry: 'gic_sub_industry',\n  IPODate: 'ipo_date',\n  Type: 'security_type',\n  ISIN: 'isin',\n  CIK: 'cik',\n  IsDelisted: 'is_delisted',\n};\n\n// -- Quality thresholds ------------------------------------------------------\nconst Q = {\n  eps_divergence_pct: 25,       // vendor EPS vs EPS computed from statements\n  shares_jump_pct: 20,          // QoQ share-count discontinuity\n  identity_gap_pct: 0.5,        // assets vs liabilities + equity\n  cf_ni_divergence_pct: 10,     // cash-flow netIncome vs income-statement\n  filing_lag_min_days: 1,       // filing_date must postdate period_end\n  filing_lag_share: 0.5,        // share of periods with no lag before flagging\n\n  // preliminary-period detection\n  round_unit: 1000000,          // exact multiples of $1m\n  round_min_values: 15,         // need this many values to judge a period\n  round_share_pct: 40,          // >this share of round values = preliminary\n  round_min_abs: 1000000,       // ignore small values; they round trivially\n\n  // component reclassification (same money moved between line items)\n  component_swing_pct: 50,      // component moved this much QoQ...\n  total_stable_pct: 15,         // ...while its total moved less than this\n\n  repeated_min_abs: 1000000,    // identical consecutive values above this\n};\n\n// repeated_value applies to FLOW statements only. Balance-sheet items are\n// stocks: an unchanged share count or capital stock across quarters is a real\n// company that issued nothing, not a carry-forward. Flagging those buries the\n// genuine hits in noise.\nconst FLOW_STATEMENTS = new Set(['income_statement', 'cash_flow']);\n\n// Components that must sum consistently to a stable total.\nconst COMPONENT_TOTALS = [\n  {\n    total: 'short_long_term_debt_total',\n    // short_term_debt is deliberately NOT a part: long-term debt moving into\n    // current as it approaches maturity is real accounting, not vendor\n    // reclassification. Including it fires on healthy issuers.\n    parts: ['long_term_debt', 'capital_lease_obligations'],\n    label: 'debt',\n  },\n];\n\nconst ISO_DATE = /^\\d{4}-\\d{2}-\\d{2}$/;\n\nconst MONTHS = {\n  january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4,\n  may: 5, june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8,\n  september: 9, sep: 9, sept: 9, october: 10, oct: 10,\n  november: 11, nov: 11, december: 12, dec: 12,\n};\n\n// ------------------------------------------------------------- utilities ----\n\nfunction toSnake(key) {\n  if (ATTRIBUTE_OVERRIDES[key]) return ATTRIBUTE_OVERRIDES[key];\n  return key\n    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')\n    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')\n    .replace(/[^A-Za-z0-9]+/g, '_')\n    .replace(/_+/g, '_')\n    .replace(/^_|_$/g, '')\n    .toLowerCase();\n}\n\nfunction coerceValue(raw) {\n  if (raw === null || raw === undefined) return null;\n  if (typeof raw === 'boolean') return { num: raw ? 1 : 0 };\n  if (typeof raw === 'number') return Number.isFinite(raw) ? { num: raw } : null;\n\n  if (typeof raw === 'string') {\n    const s = raw.trim();\n    if (s === '' || s === 'NA' || s === 'N/A' || s === '-' || s === 'null') return null;\n    if (ISO_DATE.test(s)) return { text: s };\n    const cleaned = s.replace(/,/g, '');\n    if (/^-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?$/.test(cleaned)) {\n      const n = Number(cleaned);\n      if (Number.isFinite(n)) return { num: n };\n    }\n    return { text: s };\n  }\n  return null;\n}\n\nfunction normaliseDate(raw) {\n  if (typeof raw !== 'string') return null;\n  const s = raw.trim();\n  if (!ISO_DATE.test(s)) return null;\n  if (s.startsWith('0000')) return null;   // EODHD placeholder\n  return s;\n}\n\nfunction normaliseTicker(raw) {\n  if (raw === null || raw === undefined) return null;\n  let t = String(raw).trim().toUpperCase();\n  if (!t) return null;\n  const dot = t.lastIndexOf('.');\n  if (dot > 0 && EXCHANGE_SUFFIXES.has(t.slice(dot + 1))) t = t.slice(0, dot);\n  return t || null;\n}\n\n// Sentinel strings EODHD uses instead of null. 'NA' lands in the DB as the\n// literal two-character string unless caught here.\nconst NULL_SENTINELS = new Set(['', 'NA', 'N/A', 'N.A.', '-', '--', 'null', 'NULL', 'None', '0000-00-00']);\n\n// Reverse map for CP1252 0x80-0x9F, which Latin-1 leaves undefined. Without\n// this the smart-quote family (' \" - --) cannot be round-tripped.\nconst CP1252_HIGH = {\n  0x20AC: 0x80, 0x201A: 0x82, 0x0192: 0x83, 0x201E: 0x84, 0x2026: 0x85,\n  0x2020: 0x86, 0x2021: 0x87, 0x02C6: 0x88, 0x2030: 0x89, 0x0160: 0x8A,\n  0x2039: 0x8B, 0x0152: 0x8C, 0x017D: 0x8E, 0x2018: 0x91, 0x2019: 0x92,\n  0x201C: 0x93, 0x201D: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97,\n  0x02DC: 0x98, 0x2122: 0x99, 0x0161: 0x9A, 0x203A: 0x9B, 0x0153: 0x9C,\n  0x017E: 0x9E, 0x0178: 0x9F,\n};\n\n/**\n * Repair UTF-8 bytes that were decoded as CP1252 ('AeromÃ©xico' -> 'Aeroméxico').\n * The damage arrives already present in the HTTP response, so fixing it here\n * stops it reaching the database rather than repairing rows after the fact.\n * Returns the input unchanged unless the reinterpretation yields valid UTF-8,\n * so clean names (Ørsted, Ålandsbanken, Nestlé) pass through untouched.\n */\nfunction fixMojibake(s) {\n  if (typeof s !== 'string' || !s) return s;\n  if (!/[\\u00C2\\u00C3\\u00E2\\u00C5\\u00D0\\u00D1]/.test(s)) return s;\n  const bytes = [];\n  for (const ch of s) {\n    const cp = ch.codePointAt(0);\n    if (cp <= 0xFF) bytes.push(cp);\n    else if (CP1252_HIGH[cp] !== undefined) bytes.push(CP1252_HIGH[cp]);\n    else return s;                       // not representable: not mojibake\n  }\n  try {\n    const decoded = Buffer.from(bytes).toString('utf8');\n    if (decoded.indexOf('\\uFFFD') !== -1) return s;   // invalid UTF-8\n    return decoded;\n  } catch (e) {\n    return s;\n  }\n}\n\n/** Trim, null out sentinels, repair encoding. For company-row string fields. */\nfunction cleanCompanyString(v) {\n  if (v === null || v === undefined) return null;\n  if (typeof v !== 'string') return v;\n  const t = v.trim();\n  if (NULL_SENTINELS.has(t)) return null;\n  return fixMojibake(t);\n}\n\nfunction pickTickerField(json) {\n  if (!json || typeof json !== 'object') return null;\n  for (const f of TICKER_FIELDS) {\n    if (json[f] !== undefined && json[f] !== null && json[f] !== '') return json[f];\n  }\n  return null;\n}\n\nfunction daysBetween(aIso, bIso) {\n  return Math.round((Date.parse(aIso) - Date.parse(bIso)) / 86400000);\n}\n\nfunction pctDiff(a, b) {\n  if (a === null || b === null || !Number.isFinite(a) || !Number.isFinite(b)) return null;\n  if (Math.abs(b) === 0) return null;\n  return 100 * (a - b) / Math.abs(b);\n}\n\nfunction round4(n) {\n  return (n === null || n === undefined || !Number.isFinite(n)) ? null : Number(n.toFixed(4));\n}\n\n// -------------------------------------------------- fiscal year end -------\n\nfunction lastDayOfMonth(y, m) {\n  return new Date(Date.UTC(y, m, 0)).getUTCDate();   // leap-aware\n}\n\nfunction parseFiscalMonth(raw) {\n  if (raw === null || raw === undefined) return null;\n  const s = String(raw).trim().toLowerCase();\n  if (!s) return null;\n\n  const word = s.split(/[\\s,\\-\\/]+/)[0];\n  if (MONTHS[word]) return MONTHS[word];\n\n  const iso = normaliseDate(s);\n  if (iso) return Number(iso.slice(5, 7));\n  const n = Number(word);\n  if (Number.isInteger(n) && n >= 1 && n <= 12) return n;\n  return null;\n}\n\n/** Most recent fiscal year end on or before anchorIso. */\nfunction fiscalYearEndDate(month, anchorIso) {\n  if (!month) return null;\n  const anchor = anchorIso ? new Date(anchorIso + 'T00:00:00Z') : new Date();\n  let y = anchor.getUTCFullYear();\n  let d = lastDayOfMonth(y, month);\n  if (Date.UTC(y, month - 1, d) > anchor.getTime()) {\n    y -= 1;\n    d = lastDayOfMonth(y, month);\n  }\n  return { iso: `${y}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`, day: d };\n}\n\n// -------------------------------------------- run identity (as_of, run_id) ---\n\nfunction resolveRunId() {\n  try {\n    if (typeof $execution !== 'undefined' && $execution && $execution.id) return String($execution.id);\n  } catch (e) { /* older n8n */ }\n  return null;\n}\n\nfunction resolveAsOf() {\n  if (RUN_STAMP_NODE) {\n    try {\n      const stamp = $(RUN_STAMP_NODE).first().json[RUN_STAMP_FIELD];\n      if (stamp) {\n        const d = new Date(stamp);\n        if (!isNaN(d.getTime())) return d.toISOString();\n      }\n    } catch (e) { /* fall through */ }\n  }\n  return new Date().toISOString();\n}\n\nconst RUN_ID = resolveRunId();\nconst AS_OF = resolveAsOf();\n\n// ------------------------------------------------- ticker resolution --------\n\n/** SplitInBatches exposes the current batch on branch 1; .all() defaults to 0. */\nfunction loopItems() {\n  for (const args of [[1], [0], []]) {\n    try {\n      const r = $(LOOP_NODE).all(...args);\n      if (Array.isArray(r) && r.length) return r;\n    } catch (e) { /* next signature */ }\n  }\n  return null;\n}\n\n/** Read General:: from either the flattened or nested shape. */\nfunction readGeneral(payload) {\n  const g = {};\n  if (payload.General && typeof payload.General === 'object') Object.assign(g, payload.General);\n  for (const [k, v] of Object.entries(payload)) {\n    const m = GENERAL_FLAT.exec(k);\n    if (m) g[m[1]] = v;\n  }\n  return g;\n}\n\nfunction resolveTicker(general, payload, itemJson, loopList, payloadCount) {\n  const selfDescribed =\n    normaliseTicker(general.Code) ||\n    normaliseTicker(pickTickerField(payload)) ||\n    normaliseTicker(pickTickerField(itemJson));\n\n  const fromLoop = loopList && loopList.length === 1\n    ? normaliseTicker(pickTickerField(loopList[0].json)) : null;\n\n  if (payloadCount !== 1) {\n    throw new Error(\n      `Expected exactly 1 fundamentals payload per loop iteration, got ${payloadCount}. ` +\n      `Check ${LOOP_NODE} batch size is 1 and the HTTP node returns one response.`\n    );\n  }\n  if (loopList && loopList.length > 1) {\n    throw new Error(`${LOOP_NODE} returned ${loopList.length} items — batch size is not 1.`);\n  }\n  if (selfDescribed && fromLoop && selfDescribed !== fromLoop) {\n    throw new Error(\n      `Ticker mismatch: payload says \"${selfDescribed}\", ${LOOP_NODE} says \"${fromLoop}\". ` +\n      `The HTTP response does not belong to the current loop item — stop, do not load.`\n    );\n  }\n  const ticker = selfDescribed || fromLoop;\n  if (!ticker) {\n    throw new Error(\n      `No ticker resolvable. Payload has no General::Code and $('${LOOP_NODE}') is ` +\n      `unreachable or carries no ticker field (${TICKER_FIELDS.join(', ')}). ` +\n      `Note: {{ }} syntax does not work inside a Code node.`\n    );\n  }\n  return ticker;\n}\n\n// -------------------------------------------------------------- emitters ----\n\nfunction makeRow(ctx, attributeKey, rawValue, out, stats, index) {\n  if (METADATA_KEYS.has(attributeKey)) return;\n\n  const coerced = coerceValue(rawValue);\n  if (coerced === null) { stats.nullsDropped += 1; return; }\n\n  const attribute = toSnake(attributeKey);\n  if (!attribute) { stats.badAttributes.push(attributeKey); return; }\n\n  const key = [ctx.statement, ctx.frequency, ctx.period_end, attribute].join('|');\n  if (out.has(key)) stats.collisions.push(key);\n\n  out.set(key, {\n    target: 'fact',   // makeRow now serves statement facts only\n    ticker: ctx.ticker,\n    statement: ctx.statement,\n    frequency: ctx.frequency,\n    period_end: ctx.period_end,\n    attribute,\n    value_num: coerced.num !== undefined ? coerced.num : null,\n    value_text: coerced.text !== undefined ? coerced.text : null,\n    filing_date: ctx.filing_date,\n    currency: ctx.currency,\n    as_of: AS_OF,\n    run_id: RUN_ID,\n    source: SOURCE,\n  });\n\n  if (index && coerced.num !== undefined) {\n    const st = index[ctx.statement] || (index[ctx.statement] = {});\n    const pd = st[ctx.period_end] || (st[ctx.period_end] = {});\n    pd[attribute] = coerced.num;\n  }\n}\n\nfunction emitSection(sectionObj, ctx, out, stats, index) {\n  for (const [k, v] of Object.entries(sectionObj)) {\n    if (v !== null && typeof v === 'object') {\n      for (const [k2, v2] of Object.entries(v)) makeRow(ctx, `${k}_${k2}`, v2, out, stats, index);\n      continue;\n    }\n    makeRow(ctx, k, v, out, stats, index);\n  }\n}\n\n// Market/ownership stats: one wide row per ticker for market_stats. Only the\n// fields that cannot be reconstructed from the financial statements and are\n// currency-safe - beta (unitless), the share/short counts, the ownership\n// percentages, and WallStreetTargetPrice (quoted in the listing currency, USD).\n// Short and beta appear in both SharesStats and Technicals; prefer SharesStats,\n// fall back to Technicals.\nfunction emitMarketStats(payload, ticker, out) {\n  const tech = payload.Technicals  || {};\n  const shr  = payload.SharesStats || {};\n  const high = payload.Highlights  || {};\n  const num = (raw) => {\n    const c = coerceValue(raw);\n    return c && c.num !== undefined ? c.num : null;\n  };\n\n  out.set(`market_stats|${ticker}`, {\n    target: 'market_stats',\n    ticker,\n    beta:                     num(tech.Beta),\n    shares_outstanding:       num(shr.SharesOutstanding),\n    shares_float:             num(shr.SharesFloat),\n    shares_short:             num(shr.SharesShort ?? tech.SharesShort),\n    shares_short_prior_month: num(shr.SharesShortPriorMonth ?? tech.SharesShortPriorMonth),\n    short_ratio:              num(shr.ShortRatio ?? tech.ShortRatio),\n    short_percent_float:      num(shr.ShortPercentFloat ?? tech.ShortPercent),\n    percent_insiders:         num(shr.PercentInsiders),\n    percent_institutions:     num(shr.PercentInstitutions),\n    wall_street_target:       num(high.WallStreetTargetPrice),\n    as_of:                    AS_OF,\n    run_id:                   RUN_ID,\n    source:                   SOURCE,\n  });\n}\n\n// Earnings history: one row per reported/scheduled quarter for earnings_calendar.\n// This is the only source of analyst estimates and EPS surprise - none of it is\n// derivable from the statements, and it is what the fundamentals scorer uses for\n// the EPS magnitude gate, the acceleration score and the surprise score.\n// Emitted as its own array rather than into `out`, because `out` is sorted by\n// statement/period_end/attribute at the end and these rows carry none of those.\nfunction emitEarnings(payload, ticker) {\n  // Path-keyed filters return a flat \"Earnings::History\"; a plain `Earnings`\n  // filter returns it nested. Accept either so the filter can change freely.\n  const hist = payload['Earnings::History']\n            || (payload.Earnings && payload.Earnings.History)\n            || null;\n  if (!hist || typeof hist !== 'object') return [];\n\n  const num = (raw) => {\n    const c = coerceValue(raw);\n    return c && c.num !== undefined ? c.num : null;\n  };\n\n  const rows = [];\n  for (const [key, e] of Object.entries(hist)) {\n    if (!e || typeof e !== 'object') continue;\n    const report_date = normaliseDate(e.reportDate);\n    if (!report_date) continue;          // half the PK; the row cannot be upserted\n    rows.push({\n      target: 'earnings',\n      ticker,\n      report_date,\n      period_end:          normaliseDate(e.date) || normaliseDate(key),\n      before_after_market: e.beforeAfterMarket || null,\n      currency:            e.currency || null,\n      // null actual = scheduled but not yet reported. Kept deliberately: it is\n      // real forward data, and the scorer already filters on epsActual !== null.\n      actual:              num(e.epsActual),\n      estimate:            num(e.epsEstimate),\n      difference:          num(e.epsDifference),\n      surprise_pct:        num(e.surprisePercent),\n      as_of: AS_OF, run_id: RUN_ID, source: SOURCE,\n    });\n  }\n  return rows.sort((a, b) => b.report_date.localeCompare(a.report_date));\n}\n\n// ------------------------------------------------------------------ main ----\n\nfunction transform(payload, ticker, out, stats, index, filings) {\n  emitMarketStats(payload, ticker, out);\n\n  for (const [srcKey, periods] of Object.entries(payload)) {\n    const m = PERIODIC_KEY.exec(srcKey);\n    if (!m || !periods || typeof periods !== 'object') continue;\n\n    const statement = toSnake(m[1]);\n    const frequency = m[2];\n\n    for (const [periodKey, period] of Object.entries(periods)) {\n      if (!period || typeof period !== 'object') continue;\n\n      const period_end = normaliseDate(period.date) || normaliseDate(periodKey);\n      if (!period_end) { stats.badPeriods.push(`${statement}:${periodKey}`); continue; }\n\n      const filing_date = normaliseDate(period.filing_date);\n      if (frequency === 'quarterly') filings.push({ period_end, filing_date });\n\n      emitSection(period, {\n        ticker, statement, frequency, period_end, filing_date,\n        currency: period.currency_symbol || null,\n      }, out, stats, index);\n    }\n  }\n}\n\n// --------------------------------------------------------- quality checks ----\n\nfunction allPeriods(index) {\n  const s = new Set();\n  for (const st of Object.values(index)) for (const p of Object.keys(st)) s.add(p);\n  return [...s].sort();\n}\n\nfunction qualityFlags(ticker, payload, index, filings) {\n  const flags = [];\n  const add = (check, severity, value_num, period_end, detail) =>\n    flags.push({\n      target: 'quality', ticker, check, severity,\n      value_num: round4(value_num), period_end: period_end || null,\n      detail: detail || null, as_of: AS_OF, run_id: RUN_ID, source: SOURCE,\n    });\n\n  const bs = index.balance_sheet || {};\n  const is_ = index.income_statement || {};\n  const cf = index.cash_flow || {};\n  const hl = (payload.Highlights && typeof payload.Highlights === 'object') ? payload.Highlights : {};\n\n  const qPeriods = Object.keys(is_).sort().reverse();\n  const bPeriods = Object.keys(bs).sort();\n  const periods = allPeriods(index);\n\n  // 1. filing_date carries no lag -> lookahead risk in point-in-time queries\n  const q = filings.filter((f) => f.filing_date);\n  if (q.length) {\n    const noLag = q.filter((f) => daysBetween(f.filing_date, f.period_end) < Q.filing_lag_min_days);\n    const share = noLag.length / q.length;\n    if (share > Q.filing_lag_share) {\n      add('filing_date_no_lag', 'high', 100 * share, null,\n        `${noLag.length}/${q.length} periods have filing_date <= period_end; EODHD ` +\n        `defaulted to period end. Apply a conservative lag in PIT queries.`);\n    }\n  }\n\n  // 2. PRELIMINARY PERIOD: values rounded to the nearest million.\n  //    Filed statements carry cents. A period where most large values are exact\n  //    multiples of $1m was populated from a press release or an estimate, not\n  //    a filing — exclude it from TTM until precise figures arrive.\n  for (const p of periods) {\n    let total = 0, round = 0;\n    for (const st of Object.values(index)) {\n      const row = st[p];\n      if (!row) continue;\n      for (const v of Object.values(row)) {\n        if (typeof v !== 'number' || Math.abs(v) < Q.round_min_abs) continue;\n        total += 1;\n        if (v % Q.round_unit === 0) round += 1;\n      }\n    }\n    if (total >= Q.round_min_values) {\n      const share = 100 * round / total;\n      if (share > Q.round_share_pct) {\n        add('preliminary_period', 'high', share, p,\n          `${round}/${total} values are exact multiples of ${Q.round_unit.toLocaleString()}. ` +\n          `Filed statements carry cents — this period is preliminary/estimated. ` +\n          `Exclude from TTM until precise figures land.`);\n      }\n    }\n  }\n\n  // 3. share-count discontinuity\n  let prevShares = null, prevP = null;\n  for (const p of bPeriods) {\n    const s = bs[p] && bs[p].common_stock_shares_outstanding;\n    if (s && prevShares) {\n      const chg = pctDiff(s, prevShares);\n      if (chg !== null && Math.abs(chg) > Q.shares_jump_pct) {\n        add('shares_outstanding_jump', 'high', chg, p,\n          `${prevP}: ${prevShares.toLocaleString()} -> ${p}: ${s.toLocaleString()}. ` +\n          `Per-share metrics spanning this break are invalid.`);\n      }\n    }\n    if (s) { prevShares = s; prevP = p; }\n  }\n\n  // 4. vendor EPS vs EPS computed from the statements\n  const shares = bPeriods.length\n    ? bs[bPeriods[bPeriods.length - 1]].common_stock_shares_outstanding : null;\n  if (shares && qPeriods.length >= 4) {\n    let ttm = 0, n = 0;\n    for (const p of qPeriods.slice(0, 4)) {\n      const ni = is_[p] && is_[p].net_income;\n      if (typeof ni === 'number') { ttm += ni; n += 1; }\n    }\n    if (n === 4) {\n      const computed = ttm / shares;\n      for (const f of ['EarningsShare', 'DilutedEpsTTM']) {\n        const vendor = hl[f];\n        if (typeof vendor === 'number' && vendor !== 0 && computed !== 0) {\n          const div = pctDiff(vendor, computed);\n          if (div !== null && Math.abs(div) > Q.eps_divergence_pct) {\n            add('vendor_eps_divergence', 'high', div, qPeriods[0],\n              `${f}=${vendor} vs computed TTM EPS=${computed.toFixed(4)} ` +\n              `(TTM NI ${Math.round(ttm).toLocaleString()} / ${shares.toLocaleString()} shares). ` +\n              `Vendor PERatio and anything built on it are unusable for this ticker.`);\n          }\n        }\n      }\n    }\n  }\n\n  // 5. accounting identity\n  for (const p of bPeriods.slice().reverse().slice(0, 4)) {\n    const r = bs[p] || {};\n    const ta = r.total_assets, tl = r.total_liabilities, te = r.total_stockholder_equity;\n    if ([ta, tl, te].every((v) => typeof v === 'number') && ta !== 0) {\n      const gapPct = 100 * (ta - (tl + te)) / Math.abs(ta);\n      if (Math.abs(gapPct) > Q.identity_gap_pct) {\n        add('accounting_identity_gap', 'medium', gapPct, p,\n          `assets ${ta.toLocaleString()} vs liabilities+equity ${(tl + te).toLocaleString()}`);\n      }\n    }\n  }\n\n  // 6. cash-flow netIncome vs income-statement netIncome\n  for (const p of qPeriods.slice(0, 4)) {\n    const a = cf[p] && cf[p].net_income;\n    const b = is_[p] && is_[p].net_income;\n    if (typeof a === 'number' && typeof b === 'number' && b !== 0) {\n      const div = pctDiff(a, b);\n      if (div !== null && Math.abs(div) > Q.cf_ni_divergence_pct) {\n        add('cashflow_net_income_mismatch', 'medium', div, p,\n          `cash flow ${a.toLocaleString()} vs income statement ${b.toLocaleString()}`);\n      }\n    }\n  }\n\n  // 7. COMPONENT RECLASSIFICATION: a line item swings violently while its\n  //    parent total barely moves — the same money is being moved between\n  //    fields. The total is trustworthy; the components are not.\n  for (const spec of COMPONENT_TOTALS) {\n    for (let i = 1; i < bPeriods.length; i += 1) {\n      const cur = bs[bPeriods[i]] || {}, prev = bs[bPeriods[i - 1]] || {};\n      const tNow = cur[spec.total], tPrev = prev[spec.total];\n      if (typeof tNow !== 'number' || typeof tPrev !== 'number' || tPrev === 0) continue;\n      const tChg = Math.abs(pctDiff(tNow, tPrev));\n      if (tChg > Q.total_stable_pct) continue;   // total genuinely moved\n\n      for (const part of spec.parts) {\n        const pNow = cur[part], pPrev = prev[part];\n        if (typeof pNow !== 'number' || typeof pPrev !== 'number' || pPrev === 0) continue;\n        const pChg = pctDiff(pNow, pPrev);\n        if (pChg !== null && Math.abs(pChg) > Q.component_swing_pct) {\n          add('component_reclassified', 'medium', pChg, bPeriods[i],\n            `${part} moved ${pChg.toFixed(0)}% (${pPrev.toLocaleString()} -> ` +\n            `${pNow.toLocaleString()}) while ${spec.total} moved ${tChg.toFixed(1)}%. ` +\n            `Use ${spec.total} for ${spec.label}, not the components.`);\n        }\n      }\n    }\n  }\n\n  // 8. REPEATED VALUE: identical figure in consecutive periods. Real financials\n  //    almost never repeat to the dollar; this is a carry-forward.\n  for (const [statement, byPeriod] of Object.entries(index)) {\n    if (!FLOW_STATEMENTS.has(statement)) continue;\n    const ps = Object.keys(byPeriod).sort();\n    for (let i = 1; i < ps.length; i += 1) {\n      const cur = byPeriod[ps[i]], prev = byPeriod[ps[i - 1]];\n      for (const [attr, v] of Object.entries(cur)) {\n        if (typeof v !== 'number' || Math.abs(v) < Q.repeated_min_abs) continue;\n        if (prev[attr] === v) {\n          add('repeated_value', 'low', v, ps[i],\n            `${statement}.${attr} identical in ${ps[i - 1]} and ${ps[i]} ` +\n            `(${v.toLocaleString()}) — carry-forward, not a real figure`);\n        }\n      }\n    }\n  }\n\n  // 9. negative equity\n  const latestB = bPeriods.length ? bs[bPeriods[bPeriods.length - 1]] : null;\n  if (latestB && typeof latestB.total_stockholder_equity === 'number'\n      && latestB.total_stockholder_equity < 0) {\n    add('negative_equity', 'medium', latestB.total_stockholder_equity,\n      bPeriods[bPeriods.length - 1],\n      'P/B and ROE undefined; vendor reports 0, which ranks above genuinely negative values');\n  }\n\n  // 10. otherStockholderEquity mirroring totalStockholderEquity\n  const mirrored = bPeriods.filter((p) => {\n    const r = bs[p] || {};\n    return typeof r.other_stockholder_equity === 'number'\n        && r.other_stockholder_equity === r.total_stockholder_equity;\n  });\n  if (mirrored.length && mirrored.length < bPeriods.length) {\n    add('other_equity_mirrors_total', 'low', mirrored.length, mirrored[mirrored.length - 1],\n      `other_stockholder_equity == total_stockholder_equity in ${mirrored.length}/` +\n      `${bPeriods.length} periods but not the rest — field meaning is not stable`);\n  }\n\n  // 11. propertyPlantAndEquipment gross == net in some periods only\n  const ppeSame = bPeriods.filter((p) => {\n    const r = bs[p] || {};\n    return typeof r.property_plant_and_equipment_gross === 'number'\n        && typeof r.property_plant_and_equipment_net === 'number'\n        && r.property_plant_and_equipment_net !== 0\n        && Math.abs(r.property_plant_and_equipment_gross - r.property_plant_and_equipment_net)\n           / Math.abs(r.property_plant_and_equipment_net) < 0.01;\n  });\n  const ppeBoth = bPeriods.filter((p) => {\n    const r = bs[p] || {};\n    return typeof r.property_plant_and_equipment_gross === 'number'\n        && typeof r.property_plant_and_equipment_net === 'number';\n  });\n  if (ppeSame.length && ppeBoth.length && ppeSame.length < ppeBoth.length) {\n    add('ppe_gross_equals_net', 'low', ppeSame.length, ppeSame[ppeSame.length - 1],\n      `gross == net in ${ppeSame.length}/${ppeBoth.length} periods — the gross field ` +\n      `is not consistently gross; do not derive accumulated depreciation from it`);\n  }\n\n  return flags;\n}\n\n// ---- collect the single payload --------------------------------------------\n\nconst inputItems = $input.all();\nconst payloads = [];\nfor (const item of inputItems) {\n  const json = item.json;\n  const list = Array.isArray(json) ? json : [json];\n  for (const p of list) if (p && typeof p === 'object') payloads.push({ payload: p, itemJson: json });\n}\nif (payloads.length === 0) {\n  throw new Error(\n    'No fundamentals payload received. The HTTP node returned nothing usable — ' +\n    'check for a 404 or rate-limit response before this node.'\n  );\n}\n\nconst loopList = loopItems();\nconst { payload, itemJson } = payloads[0];\nconst general = readGeneral(payload);\nconst ticker = resolveTicker(general, payload, itemJson, loopList, payloads.length);\n\nconst out = new Map();\nconst index = {};\nconst filings = [];\nconst stats = { nullsDropped: 0, collisions: [], badAttributes: [], badPeriods: [] };\n\ntransform(payload, ticker, out, stats, index, filings);\n\n// `out` holds statement facts AND the single market_stats row. Only facts carry\n// statement/period_end/attribute, so sort those alone: the comparator\n// dereferences all three and throws if it is ever handed the market_stats row\n// as its first argument. It survives today only because V8 happens to pass that\n// row as `b`, which is luck, not design.\nconst allOut = [...out.values()];\nconst factRows = allOut.filter((r) => r.target === 'fact');\n\nconst rows = factRows\n  .sort(\n    (a, b) =>\n      a.statement.localeCompare(b.statement) ||\n      b.period_end.localeCompare(a.period_end) ||\n      a.attribute.localeCompare(b.attribute)\n  )\n  .concat(allOut.filter((r) => r.target !== 'fact'));\n\nif (factRows.length === 0) {\n  throw new Error(\n    `${ticker}: payload parsed but produced 0 fact rows. Likely an EODHD error ` +\n    `body or an empty record — do not insert a phantom ingest.`\n  );\n}\n\n// ---- company row ------------------------------------------------------------\n\nconst periodsAll = allPeriods(index);\nconst latestPeriod = periodsAll.length ? periodsAll[periodsAll.length - 1] : null;\n\nconst fyMonth = parseFiscalMonth(general.FiscalYearEnd);\nconst fy = fiscalYearEndDate(fyMonth, latestPeriod);\n\nconst companyRow = {\n  target: 'company',\n  ticker,\n  fiscal_year_end_month: fyMonth,             // 12\n  fiscal_year_end_day: fy ? fy.day : null,    // 31 (leap-aware for Feb)\n  fiscal_year_end_date: fy ? fy.iso : null,   // '2025-12-31'\n  fiscal_year_end_raw: cleanCompanyString(\n    general.FiscalYearEnd === undefined || general.FiscalYearEnd === null\n      ? null : String(general.FiscalYearEnd)),\n  latest_period_end: latestPeriod,\n  most_recent_quarter: (payload.Highlights && normaliseDate(payload.Highlights.MostRecentQuarter)) || null,\n  last_seen: AS_OF,\n  run_id: RUN_ID,\n  source: SOURCE,\n};\nconst encodingRepaired = [];\nfor (const [src, col] of Object.entries(COMPANY_FIELDS)) {\n  const raw = general[src];\n  const cleaned = cleanCompanyString(raw === undefined ? null : raw);\n  if (typeof raw === 'string' && typeof cleaned === 'string' && cleaned !== raw.trim()) {\n    encodingRepaired.push(`${col}: ${JSON.stringify(raw)} -> ${JSON.stringify(cleaned)}`);\n  }\n  companyRow[col] = cleaned;\n}\nif (companyRow.ipo_date) companyRow.ipo_date = normaliseDate(String(companyRow.ipo_date));\nif (companyRow.is_delisted !== null && companyRow.is_delisted !== undefined) {\n  companyRow.is_delisted = (companyRow.is_delisted === true\n    || String(companyRow.is_delisted).toLowerCase() === 'true'\n    || String(companyRow.is_delisted) === '1');\n}\nif (fyMonth === null && general.FiscalYearEnd !== undefined) {\n  stats.badAttributes.push(`FiscalYearEnd:${general.FiscalYearEnd}`);\n}\n\n// ---- quality flags ----------------------------------------------------------\n\nconst flags = qualityFlags(ticker, payload, index, filings);\nconst earnings = emitEarnings(payload, ticker);   \n\n// Encoding damage arrives in the feed itself, so record how often it happens.\n// If this fires across many tickers the fix belongs in the HTTP node's\n// response charset, not in per-row repair.\nif (encodingRepaired.length) {\n  flags.push({\n    target: 'quality', ticker, check: 'encoding_repaired', severity: 'low',\n    value_num: encodingRepaired.length, period_end: null,\n    detail: encodingRepaired.join('; ').slice(0, 500),\n    as_of: AS_OF, run_id: RUN_ID, source: SOURCE,\n  });\n}\n\n// ---- output -----------------------------------------------------------------\n\nif (EMIT_SUMMARY) {\n  const bySeverity = (s) => flags.filter((f) => f.severity === s).length;\n  return [{\n    json: {\n      _summary: true,\n      ticker,\n      sector: companyRow.sector,\n      industry: companyRow.industry,\n      fact_rows: rows.filter((r) => r.target === 'fact').length,\n      market_stats_rows: rows.filter((r) => r.target === 'market_stats').length,\n      quality_flags: flags.length,\n      flags_high: bySeverity('high'),\n      flags_medium: bySeverity('medium'),\n      flags_low: bySeverity('low'),\n      fiscal_year_end_date: companyRow.fiscal_year_end_date,\n      fiscal_year_end_raw: companyRow.fiscal_year_end_raw,\n      latest_period_end: latestPeriod,\n      nulls_dropped: stats.nullsDropped,\n      // JSON strings, not arrays — n8n/jsonb top-level array convention\n      flag_names: JSON.stringify(flags.map((f) => `${f.severity}:${f.check}${f.period_end ? '@' + f.period_end : ''}`)),\n      collision_keys: JSON.stringify(stats.collisions.slice(0, 25)),\n      bad_attributes: JSON.stringify(stats.badAttributes.slice(0, 25)),\n      bad_periods: JSON.stringify(stats.badPeriods.slice(0, 25)),\n      loop_items: loopList === null ? 'unreachable' : String(loopList.length),\n      run_id: RUN_ID,\n      as_of: AS_OF,\n    },\n  }];\n}\n\nreturn [companyRow, ...flags, ...earnings, ...rows].map((r) => ({ json: r }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -16
+      ],
+      "id": "9f78c855-0d8d-4a8c-83d9-8a8eb891dbbf",
+      "name": "Code in JavaScript",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -448,
+        176
+      ],
+      "id": "ae07daf3-cd77-452f-b84c-0c7a5cc7a66a",
+      "name": "New Fundamentals Loop1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.universe AS u (\n    ticker, name, exchange, currency, isin, type,\n    sector, industry, gic_sector, gic_group, gic_industry, gic_sub_industry,\n    country, ipo_date, cik, is_delisted,\n    fiscal_year_end_month, fiscal_year_end_day, fiscal_year_end_date, fiscal_year_end_raw,\n    latest_period_end, most_recent_quarter,\n    fundamentals_run_id, fundamentals_source, fundamentals_last_seen\n)\nSELECT\n    c.ticker, c.name, c.exchange, COALESCE(c.currency, 'USD'), c.isin, c.security_type,\n    c.sector, c.industry, c.gic_sector, c.gic_group, c.gic_industry, c.gic_sub_industry,\n    c.country, c.ipo_date, c.cik, COALESCE(c.is_delisted, false),\n    c.fiscal_year_end_month, c.fiscal_year_end_day, c.fiscal_year_end_date, c.fiscal_year_end_raw,\n    c.latest_period_end, c.most_recent_quarter,\n    c.run_id, c.source, c.last_seen\nFROM json_to_recordset($1::json) AS c(\n    ticker text, name text, exchange text, currency text, isin text, security_type text,\n    sector text, industry text,\n    gic_sector text, gic_group text, gic_industry text, gic_sub_industry text,\n    country text, ipo_date date, cik text, is_delisted boolean,\n    fiscal_year_end_month smallint, fiscal_year_end_day smallint,\n    fiscal_year_end_date date, fiscal_year_end_raw text,\n    latest_period_end date, most_recent_quarter date,\n    run_id text, source text, last_seen timestamptz\n)\nWHERE c.ticker IS NOT NULL\nON CONFLICT (ticker) DO UPDATE SET\n    name                   = EXCLUDED.name,\n    exchange               = EXCLUDED.exchange,\n    currency               = EXCLUDED.currency,\n    isin                   = EXCLUDED.isin,\n    type                   = EXCLUDED.type,\n    sector                 = EXCLUDED.sector,\n    industry               = EXCLUDED.industry,\n    gic_sector             = EXCLUDED.gic_sector,\n    gic_group              = EXCLUDED.gic_group,\n    gic_industry           = EXCLUDED.gic_industry,\n    gic_sub_industry       = EXCLUDED.gic_sub_industry,\n    country                = EXCLUDED.country,\n    ipo_date               = EXCLUDED.ipo_date,\n    cik                    = EXCLUDED.cik,\n    is_delisted            = EXCLUDED.is_delisted,\n    fiscal_year_end_month  = EXCLUDED.fiscal_year_end_month,\n    fiscal_year_end_day    = EXCLUDED.fiscal_year_end_day,\n    fiscal_year_end_date   = EXCLUDED.fiscal_year_end_date,\n    fiscal_year_end_raw    = EXCLUDED.fiscal_year_end_raw,\n    latest_period_end      = EXCLUDED.latest_period_end,\n    most_recent_quarter    = EXCLUDED.most_recent_quarter,\n    fundamentals_run_id    = EXCLUDED.fundamentals_run_id,\n    fundamentals_source    = EXCLUDED.fundamentals_source,\n    fundamentals_last_seen = EXCLUDED.fundamentals_last_seen,\n    updated_at             = now();",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Code in JavaScript').all().map(i => i.json).filter(r => r.target === 'company')) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        224,
+        -16
+      ],
+      "id": "258f2874-82ad-4d85-87f9-00d13a8cc184",
+      "name": "Company1",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO fundamentals_quality_flags\n    (ticker, \"check\", period_end, severity, value_num, detail, as_of, run_id, source)\nSELECT DISTINCT ON (ticker, \"check\", period_end)\n       q.ticker, q.check, COALESCE(q.period_end, '0001-01-01'::date),\n       q.severity, q.value_num, q.detail, q.as_of, q.run_id, q.source\nFROM json_to_recordset($1::json) AS q(\n    ticker text, \"check\" text, period_end date, severity text,\n    value_num numeric, detail text, as_of timestamptz,\n    run_id text, source text\n)\nORDER BY ticker, \"check\", period_end, abs(q.value_num) DESC NULLS LAST\nON CONFLICT (ticker, \"check\", period_end) DO UPDATE SET\n    severity  = EXCLUDED.severity,\n    value_num = EXCLUDED.value_num,\n    detail    = EXCLUDED.detail,\n    as_of     = EXCLUDED.as_of,\n    run_id    = EXCLUDED.run_id;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Code in JavaScript').all().map(i => i.json).filter(r => r.target === 'quality')) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        448,
+        -16
+      ],
+      "id": "ca5239b5-0bd8-4fe8-bebe-f156c316651f",
+      "name": "Quality1",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO fundamentals_facts\n    (ticker, statement, frequency, period_end, attribute,\n     value_num, value_text, filing_date, currency, as_of, run_id, source)\nSELECT f.ticker, f.statement, f.frequency, f.period_end, f.attribute,\n       f.value_num, f.value_text, f.filing_date, f.currency,\n       f.as_of, f.run_id, f.source\nFROM json_to_recordset($1::json) AS f(\n    ticker text, statement text, frequency text, period_end date,\n    attribute text, value_num numeric, value_text text,\n    filing_date date, currency text, as_of timestamptz,\n    run_id text, source text\n)\nON CONFLICT (ticker, statement, frequency, period_end, attribute) DO UPDATE SET\n    value_num   = EXCLUDED.value_num,\n    value_text  = EXCLUDED.value_text,\n    filing_date = EXCLUDED.filing_date,\n    currency    = EXCLUDED.currency,\n    as_of       = EXCLUDED.as_of,\n    run_id      = EXCLUDED.run_id;",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Code in JavaScript').all().map(i => i.json).filter(r => r.target === 'fact')) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        672,
+        -16
+      ],
+      "id": "7cb69bb8-6205-4ae3-9555-ae711803aa2c",
+      "name": "Fundamentals Upsert1",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO market_stats\n    (ticker, beta, shares_outstanding, shares_float, shares_short,\n     shares_short_prior_month, short_ratio, short_percent_float,\n     percent_insiders, percent_institutions, wall_street_target, as_of)\nSELECT s.ticker, s.beta, s.shares_outstanding, s.shares_float, s.shares_short,\n       s.shares_short_prior_month, s.short_ratio, s.short_percent_float,\n       s.percent_insiders, s.percent_institutions, s.wall_street_target, s.as_of\nFROM json_to_recordset($1::json) AS s(\n    ticker text, beta numeric, shares_outstanding numeric, shares_float numeric,\n    shares_short numeric, shares_short_prior_month numeric, short_ratio numeric,\n    short_percent_float numeric, percent_insiders numeric, percent_institutions numeric,\n    wall_street_target numeric, as_of timestamptz\n)\nON CONFLICT (ticker) DO UPDATE SET\n    beta                     = EXCLUDED.beta,\n    shares_outstanding       = EXCLUDED.shares_outstanding,\n    shares_float             = EXCLUDED.shares_float,\n    shares_short             = EXCLUDED.shares_short,\n    shares_short_prior_month = EXCLUDED.shares_short_prior_month,\n    short_ratio              = EXCLUDED.short_ratio,\n    short_percent_float      = EXCLUDED.short_percent_float,\n    percent_insiders         = EXCLUDED.percent_insiders,\n    percent_institutions     = EXCLUDED.percent_institutions,\n    wall_street_target       = EXCLUDED.wall_street_target,\n    as_of                    = EXCLUDED.as_of,\n    updated_at               = now();",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Code in JavaScript').all().map(i => i.json).filter(r => r.target === 'market_stats')) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        896,
+        -16
+      ],
+      "id": "83904820-a05c-44e2-a98f-45b71461cde8",
+      "name": "Market Stats1",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO earnings_calendar\n    (ticker, report_date, period_end, before_after_market, currency,\n     actual, estimate, difference, surprise_pct, source)\nSELECT DISTINCT ON (e.ticker, e.report_date)\n       e.ticker, e.report_date, e.period_end, e.before_after_market, e.currency,\n       e.actual, e.estimate, e.difference, e.surprise_pct, e.source\nFROM json_to_recordset($1::json) AS e(\n    ticker text, report_date date, period_end date, before_after_market text,\n    currency text, actual numeric, estimate numeric, difference numeric,\n    surprise_pct numeric, source text\n)\nWHERE e.ticker IS NOT NULL AND e.report_date IS NOT NULL\nORDER BY e.ticker, e.report_date, e.actual NULLS LAST\nON CONFLICT (ticker, report_date) DO UPDATE SET\n    period_end          = EXCLUDED.period_end,\n    before_after_market = EXCLUDED.before_after_market,\n    currency            = EXCLUDED.currency,\n    actual              = EXCLUDED.actual,\n    estimate            = EXCLUDED.estimate,\n    difference          = EXCLUDED.difference,\n    surprise_pct        = EXCLUDED.surprise_pct,\n    updated_at          = now();",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($('Code in JavaScript').all().map(i => i.json).filter(r => r.target === 'earnings')) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1120,
+        64
+      ],
+      "id": "c556a58d-bc75-406b-845b-00847a641cae",
+      "name": "Earnings1",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "ticker"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -672,
+        176
+      ],
+      "id": "1eb5c7d6-ab35-48c5-b122-4f5a9d7add3e",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "connections": {
+    "Fundamentals1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "New Fundamentals Loop1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Company1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "New Fundamentals Loop1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Fundamentals Loop1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Fundamentals1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Company1": {
+      "main": [
+        [
+          {
+            "node": "Quality1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quality1": {
+      "main": [
+        [
+          {
+            "node": "Fundamentals Upsert1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fundamentals Upsert1": {
+      "main": [
+        [
+          {
+            "node": "Market Stats1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Market Stats1": {
+      "main": [
+        [
+          {
+            "node": "Earnings1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Earnings1": {
+      "main": [
+        [
+          {
+            "node": "New Fundamentals Loop1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "New Fundamentals Loop1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "hFzGgakH6rLpa0MU",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "versionId": "01f4ddbe-8475-461a-a0fd-9ce5dd3c4b1b",
+  "activeVersionId": "01f4ddbe-8475-461a-a0fd-9ce5dd3c4b1b",
+  "versionCounter": 24,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-09-26T07:49:33.406Z",
+      "createdAt": "2026-09-26T07:49:33.406Z",
+      "role": "workflow:owner",
+      "workflowId": "hp90sA7U7yZe93Sh",
+      "projectId": "PjanIvva1Mlx8hZV",
+      "project": {
+        "updatedAt": "2026-02-14T16:55:09.426Z",
+        "createdAt": "2026-02-14T16:15:58.481Z",
+        "id": "PjanIvva1Mlx8hZV",
+        "name": "Jack Eldridge <you@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "b5463656-ed61-440e-acc2-9c43a8cb5056"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 01f4ddbe",
+    "description": ""
+  }
+}

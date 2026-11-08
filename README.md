@@ -15,6 +15,9 @@ and follow the lessons.
   `queries.sql`, `template.html` and `nginx-site.conf`.
 - **`scripts/`** — operational helpers (Module 8): `backup.sh`, a template that
   exports your n8n workflows and dumps the database to a private backup repo.
+- **`workflows/`** — ready-to-import n8n workflows (data loads, politician trades,
+  trade approval & logging, FX, plus helper sub-workflows). Import them and connect
+  your own credentials — see `workflows/README.md`.
 
 ## Using it
 

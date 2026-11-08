@@ -1,0 +1,725 @@
+{
+  "updatedAt": "2026-09-03T14:25:34.078Z",
+  "createdAt": "2026-05-11T02:55:37.175Z",
+  "id": "RexmQVOskPDOUOad",
+  "name": "Data Extraction - FX Tracking 💵",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/30 6-21 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -112,
+        -848
+      ],
+      "id": "1754fcf3-d081-4174-a524-254400d62ac8",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://fc.yahoo.com",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        336,
+        -848
+      ],
+      "id": "a1714337-b3f9-4987-8c5b-9d7f76a1a5ea",
+      "name": "Get Yahoo Cookies",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://query2.finance.yahoo.com/v1/test/getcrumb",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "={{ $json.ua }}"
+            },
+            {
+              "name": "Cookie",
+              "value": "={{ $json.cookieJar }}"
+            },
+            {
+              "name": "Accept",
+              "value": "text/plain,*/*"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "text",
+              "outputPropertyName": "body"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        784,
+        -848
+      ],
+      "id": "594b4665-fdde-4103-b9a5-f1370c9d5afb",
+      "name": "Get Crumb",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "var cookieJar = Array.isArray($input.first().json.headers['set-cookie'])\n    ? $input.first().json.headers['set-cookie']\n        .map(s => s.split(\";\")[0])\n        .join(\"; \")\n    : String($input.first().json.headers['set-cookie'] || \"\")\n        .split(/\\r?\\n/).map(s => s.split(\";\")[0]).join(\"; \");\n\nreturn {\n  'ua': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',\n  'cookieJar': cookieJar  \n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -848
+      ],
+      "id": "b4fd7ee0-da42-4899-ae91-1364c2917d52",
+      "name": "Prepare Cookie Jar"
+    },
+    {
+      "parameters": {
+        "jsCode": "return { 'symbol': '^SPX' }"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        -848
+      ],
+      "id": "bf084810-72b2-4593-be02-b1deb35ee33d",
+      "name": "Symbol Configuration"
+    },
+    {
+      "parameters": {
+        "url": "=https://query2.finance.yahoo.com/v8/finance/chart/{{ $json.Currency }}GBP=X?interval=1d&range=1d",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "crumb",
+              "value": "={{ $('Get Crumb').item.json.body }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "={{ $('Prepare Cookie Jar').item.json.ua }}"
+            },
+            {
+              "name": "Cookie",
+              "value": "={{ $('Prepare Cookie Jar').item.json.cookieJar }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Referer",
+              "value": "={{ \"https://finance.yahoo.com/quote/\" + ($('Symbol Configuration').item.json.symbol) }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1232,
+        -848
+      ],
+      "id": "d2776e23-2cd1-48d1-bd26-dea6713c85c3",
+      "name": "Yahoo Stock Data",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split Yahoo FX response into one item per currency pair\n// Input: single item with chart array, OR multiple items each with one chart\n// Output: one item per currency, with clean rate field\n\nconst allItems = $input.all();\nconst output = [];\n\nfor (const item of allItems) {\n  // Yahoo can return either a single {chart:{...}} object or an array of them\n  // Normalize to array form\n  const charts = Array.isArray(item.json) ? item.json : [item.json];\n\n  for (const entry of charts) {\n    const result = entry?.chart?.result?.[0];\n    if (!result) continue;\n\n    const symbol = result.meta?.symbol;        // e.g. \"USDGBP=X\"\n    const rate   = result.meta?.regularMarketPrice;\n\n    if (!symbol || rate == null) continue;\n\n    // Parse \"FROMTO=X\" → from + to\n    const match = symbol.match(/^([A-Z]{3})?([A-Z]{3})=X$/);\n    if (!match) continue;\n    const fromCcy = match[1] || 'USD';   // GBP=X means USD/GBP\n    const toCcy   = match[2];\n\n    output.push({\n      json: {\n        symbol,\n        fromCurrency: fromCcy,\n        toCurrency:   toCcy,\n        rate:         rate,\n        rateAsOf:     result.meta?.regularMarketTime\n                        ? new Date(result.meta.regularMarketTime * 1000).toISOString()\n                        : null,\n        dayHigh:      result.meta?.regularMarketDayHigh ?? null,\n        dayLow:       result.meta?.regularMarketDayLow ?? null,\n        previousClose: result.meta?.chartPreviousClose ?? null,\n      },\n    });\n  }\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        -848
+      ],
+      "id": "4da2f286-8d28-4778-ad9a-00021ef82a0e",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "fx_rates",
+          "mode": "list",
+          "cachedResultName": "fx_rates"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Rate": "={{ $json.dayLow }}",
+            "Currency": "={{ $json.fromCurrency }}"
+          },
+          "matchingColumns": [
+            "Currency"
+          ],
+          "schema": [
+            {
+              "id": "Currency",
+              "displayName": "Currency",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Rate",
+              "displayName": "Rate",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1680,
+        -848
+      ],
+      "id": "b8f21999-744e-4201-8aee-e191c0e986a6",
+      "name": "Insert or update rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from fx_rates",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1008,
+        -848
+      ],
+      "id": "54fc0726-ccdb-435f-a531-33852ad064e2",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://eodhd.com/api/eod/{{ $json.currency_pair }}.FOREX",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "api_token",
+              "value": "YOUR_EODHD_KEY"
+            },
+            {
+              "name": "fmt",
+              "value": "json"
+            },
+            {
+              "name": "=from",
+              "value": "={{ $('When Executed by Another Workflow').item.json.RefreshType === 'Daily' ? $now.minus(10, 'days').toFormat('yyyy-MM-dd') : '2021-12-31' }}"
+            },
+            {
+              "name": "to",
+              "value": "={{ $now.format('yyyy-MM-dd')}}"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        784,
+        -592
+      ],
+      "id": "aad072be-46d3-412e-99dc-9042e27ac76e",
+      "name": "EODHD FX",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        560,
+        -544
+      ],
+      "id": "24252784-7cc7-49c2-9802-4c5f3426c8c4",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO fx_rate_daily (currency, rate_date, usd_per_unit)\nVALUES (\n  $1,                                   -- currency\n  $2,                                   -- rate_date\n  CASE\n    WHEN left($3, 3) = 'USD'            -- USDxxx: close is units/USD -> invert to USD/unit\n      THEN 1.0 / NULLIF($4::numeric, 0)\n    ELSE $4::numeric                     -- xxxUSD: close is already USD/unit\n  END                                    -- $3 = currency_pair, $4 = close\n)\nON CONFLICT (currency, rate_date)\nDO UPDATE SET usd_per_unit = EXCLUDED.usd_per_unit, as_of = now();",
+        "options": {
+          "queryReplacement": "={{ [$('Loop Over Items').item.json.currency.trim(), $json.date, $('Loop Over Items').item.json.currency_pair.trim(), Number($json.adjusted_close)] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1008,
+        -528
+      ],
+      "id": "b873aa17-9e58-4ed9-b1f4-f3071a625280",
+      "name": "Execute a SQL query1",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "RefreshType"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -112,
+        -544
+      ],
+      "id": "5bf6820a-80e6-4d32-82a0-28a07bb62f75",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT\n  norm.currency,\n  CASE\n    WHEN norm.currency = ANY (ARRAY['EUR','GBP','AUD','NZD'])\n      THEN norm.currency || 'USD'      -- these trade CCY-base (EURUSD, GBPUSD)\n    ELSE 'USD' || norm.currency          -- everything else is USD-base (USDVND, USDCNY, USDJPY)\n  END AS currency_pair\nFROM (\n  SELECT DISTINCT\n    CASE WHEN currency = 'GBX' THEN 'GBP' ELSE currency END AS currency\n  FROM fundamentals_facts\n  WHERE currency IS NOT NULL AND currency <> '' AND currency <> 'USD'\n) norm\n  --where currency = 'PLN' not in ('VND','CNY','GBX','GBP');",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        336,
+        -624
+      ],
+      "id": "975a51d0-9725-423e-bcaa-1ed777c3061b",
+      "name": "All Reporting Currencies",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "74c8894a-4a60-4f61-a6e0-42e26edbac3d",
+              "leftValue": "={{ $('When Executed by Another Workflow').item.json.RefreshType }}",
+              "rightValue": "Daily",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        112,
+        -544
+      ],
+      "id": "73886939-ee1f-4a51-a980-4b0f473bb135",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select distinct currency from fundamentals_facts ff where not EXISTS (\n                         SELECT 1 FROM fx_rate_daily frd                      \nWHERE frd.currency = ff.currency) and currency not in ('GBX','USD') and currency is not null;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        336,
+        -432
+      ],
+      "id": "f7d7f315-569f-4a3b-9582-582a5b5d050b",
+      "name": "BackFill Missing Currencies",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Get Yahoo Cookies": {
+      "main": [
+        [
+          {
+            "node": "Prepare Cookie Jar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Crumb": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Cookie Jar": {
+      "main": [
+        [
+          {
+            "node": "Get Crumb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Symbol Configuration": {
+      "main": [
+        [
+          {
+            "node": "Get Yahoo Cookies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Symbol Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Yahoo Stock Data": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Insert or update rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Yahoo Stock Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "EODHD FX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EODHD FX": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "All Reporting Currencies": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "All Reporting Currencies",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "BackFill Missing Currencies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BackFill Missing Currencies": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "hFzGgakH6rLpa0MU",
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Etc/UTC",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "node:Schedule Trigger1": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "versionId": "05a75168-e452-44d4-adfa-3412dfcad920",
+  "activeVersionId": "05a75168-e452-44d4-adfa-3412dfcad920",
+  "versionCounter": 280,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-05-11T02:55:37.178Z",
+      "createdAt": "2026-05-11T02:55:37.178Z",
+      "role": "workflow:owner",
+      "workflowId": "RexmQVOskPDOUOad",
+      "projectId": "PjanIvva1Mlx8hZV",
+      "project": {
+        "updatedAt": "2026-02-14T16:55:09.426Z",
+        "createdAt": "2026-02-14T16:15:58.481Z",
+        "id": "PjanIvva1Mlx8hZV",
+        "name": "Jack Eldridge <you@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "b5463656-ed61-440e-acc2-9c43a8cb5056"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 05a75168",
+    "description": ""
+  }
+}

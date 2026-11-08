@@ -1,0 +1,277 @@
+{
+  "updatedAt": "2026-09-25T13:34:48.062Z",
+  "createdAt": "2026-08-27T07:27:40.022Z",
+  "id": "TvwBEdXbRfiXOxvV",
+  "name": "Sub Workflow - Batch Price Update",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "url": "=https://eodhd.com/api/eod/{{ $('When Executed by Another Workflow').first().json.ticker }}.{{ $('When Executed by Another Workflow').first().json.exchange }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "from",
+              "value": "={{ $now.minus($('When Executed by Another Workflow').first().json.days_ago, 'days').format('yyyy-MM-dd')}}"
+            },
+            {
+              "name": "to",
+              "value": "={{$now.format('yyyy-MM-dd')}}"
+            },
+            {
+              "name": "function",
+              "value": "splitadjusted"
+            },
+            {
+              "name": "period",
+              "value": "50"
+            },
+            {
+              "name": "api_token",
+              "value": "YOUR_EODHD_KEY"
+            },
+            {
+              "name": "fmt",
+              "value": "json"
+            },
+            {
+              "name": "order",
+              "value": "d"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -240,
+        32
+      ],
+      "id": "8c8fd83f-41f2-46b5-969a-d4c193d139aa",
+      "name": "PriceHistory1",
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO daily_prices (ticker, date, open, high, low, close, adjusted_close, volume)\nSELECT DISTINCT ON (ticker, date)\n       ticker, date::date, open, high, low, close, adjusted_close, volume\nFROM json_to_recordset($JSON$ {{ JSON.stringify($input.all().map(i => ({ ...i.json, ticker: $('When Executed by Another Workflow').first().json.ticker }))) }} $JSON$::json)\n  AS x(ticker text, date text, open numeric, high numeric, low numeric,\n       close numeric, adjusted_close numeric, volume bigint)\nWHERE ticker IS NOT NULL AND date IS NOT NULL AND close IS NOT NULL\nORDER BY ticker, date, adjusted_close DESC NULLS LAST\nON CONFLICT (ticker, date) DO UPDATE SET\n  open = excluded.open, high = excluded.high, low = excluded.low,\n  close = excluded.close, adjusted_close = excluded.adjusted_close,\n  volume = excluded.volume;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        32
+      ],
+      "id": "1e7b085c-40d1-482b-aff3-2b6238693ab9",
+      "name": "Daily Prices Load1",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "461e58da-6663-4fe0-96fa-6230081ad9ec",
+              "leftValue": "={{ Object.keys($json).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -16,
+        32
+      ],
+      "id": "2fd24460-3573-4e82-9936-399b90da1bee",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "ticker"
+            },
+            {
+              "name": "exchange"
+            },
+            {
+              "name": "days_ago",
+              "type": "any"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -464,
+        32
+      ],
+      "id": "94fdaddf-f821-4a62-9b44-08e5eb4ab426",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// last node in the sub-workflow: what the parent collects. Keep it small - the\n// parent accumulates one of these per child, so returning the loaded rows here\n// would just move the accumulation problem up a level.\nconst ticker = $('When Executed by Another Workflow').first().json.ticker;\nconst loaded = $('Daily Prices Load1').all().length;\nreturn [{ json: { ticker, rows_loaded: loaded } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        32
+      ],
+      "id": "116096c1-d9af-45a6-9b5f-3a26d0fd3ce1",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ticker,\n       case when type = 'Common Stock' then LEAST(current_date - ipo_date, current_date - '2011-12-31'::date)\n  else LEAST(current_date - ipo_date, current_date - '2021-12-31'::date) end AS hist_start_days\nFROM universe\nwhere type = 'Common Stock'\nand ipo_date <= '2021-12-31'",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -464,
+        -192
+      ],
+      "id": "1a647d1b-bec3-4e43-8a15-c040c8816aec",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      },
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "PriceHistory1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Daily Prices Load1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "PriceHistory1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Prices Load1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "hFzGgakH6rLpa0MU",
+    "timezone": "Etc/UTC",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "versionId": "96f4b34d-66a9-4584-aaaa-5fbe2975b0dc",
+  "activeVersionId": "96f4b34d-66a9-4584-aaaa-5fbe2975b0dc",
+  "versionCounter": 143,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-08-27T07:27:40.027Z",
+      "createdAt": "2026-08-27T07:27:40.027Z",
+      "role": "workflow:owner",
+      "workflowId": "TvwBEdXbRfiXOxvV",
+      "projectId": "PjanIvva1Mlx8hZV",
+      "project": {
+        "updatedAt": "2026-02-14T16:55:09.426Z",
+        "createdAt": "2026-02-14T16:15:58.481Z",
+        "id": "PjanIvva1Mlx8hZV",
+        "name": "Jack Eldridge <you@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "b5463656-ed61-440e-acc2-9c43a8cb5056"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 96f4b34d",
+    "description": ""
+  }
+}

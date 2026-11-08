@@ -1,0 +1,701 @@
+{
+  "updatedAt": "2026-10-07T06:57:34.095Z",
+  "createdAt": "2026-04-12T09:36:44.536Z",
+  "id": "2uIxZE7RfOS61ipr",
+  "name": "Political Trades - Periodic Disclosures",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "xml",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -336,
+        -192
+      ],
+      "id": "3cffb35b-15a4-4d9b-a945-2f0d72fc3ee8",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        112,
+        -192
+      ],
+      "id": "b5e8f49f-c5a1-4e08-8a5b-1d99d3686c79",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "options": {
+          "purpose": "user_data"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        560,
+        -288
+      ],
+      "id": "bd13e726-0f45-4d6e-b182-22ce828747b0",
+      "name": "Upload a file",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 3,
+      "credentials": {
+        "openAiApi": {
+          "id": "QUqMLJOlvaHlpVfE",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-6-astra",
+          "mode": "list",
+          "cachedResultName": "GPT-6-ASTRA"
+        },
+        "responses": {
+          "values": [
+            {
+              "type": "file",
+              "fileType": "fileId",
+              "fileId": "={{ $json.id }}"
+            },
+            {
+              "content": "Extract all transactions from this PDF document and return valid and clean JSON matching the schema exactly. NEVER return line break references (\\n)\n\nFIELD RULES:\n- ticker: symbol in parentheses e.g. (AAPL). You MUST infer the corresponding Yahoo ticker based on the asset_name field if the ticker isn't explicitly stated in the document - every record returned MUST include a ticker. Never guess.\n- exchange: the exchange on which the ticker is traded, specifically the yahooExchange code e.g, NYQ, NMS etc\n- asset_name: full name excluding ticker and suffix brackets\n- action: BUY for purchases/exercises, SELL for sales/partial sales/DAF contributions\n- instrument: [ST]=shares, [OP]+call=call_options, [OP]+put=put_options, else other\n- dates: MM/DD/YYYY as printed. transaction_date and notification_date are separate fields\n- amount_low/high: numeric values from the printed range. midpoint: round((low+high)/2)\n- capital_gains: true only if checkbox is explicitly marked, otherwise false\n- description: verbatim as printed, empty string if absent\n- filer_name: as printed. filing_date: signature date. filing_id: top-right ID number\n\nNo text outside the JSON. No nulls — use \"\" or 0 if a value is absent."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_schema",
+              "schema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"filer_name\":  { \"type\": \"string\" },\n    \"filing_date\": { \"type\": \"string\" },\n    \"filing_id\":   { \"type\": \"string\" },\n    \"trades\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"ticker\":            { \"type\": \"string\" },\n          \"asset_name\":        { \"type\": \"string\" },\n          \"action\":            { \"type\": \"string\", \"enum\": [\"BUY\", \"SELL\"] },\n          \"instrument\":        { \"type\": \"string\", \"enum\": [\"shares\", \"call_options\", \"put_options\", \"other\"] },\n          \"transaction_date\":  { \"type\": \"string\" },\n          \"notification_date\": { \"type\": \"string\" },\n          \"description\":       { \"type\": \"string\" }\n        },\n        \"required\": [\"ticker\",\"asset_name\",\"action\",\"instrument\",\"transaction_date\",\"notification_date\",\"description\"],\n        \"additionalProperties\": false\n      }\n    }\n  },\n  \"required\": [\"filer_name\",\"filing_date\",\"filing_id\",\"trades\"],\n  \"additionalProperties\": false\n}"
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        1008,
+        -288
+      ],
+      "id": "97fde086-8900-474a-8051-2e41aeb797ce",
+      "name": "Message a model",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 5,
+      "credentials": {
+        "openAiApi": {
+          "id": "QUqMLJOlvaHlpVfE",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allTrades = [];\n\nfor (const item of $('Message a model').all()) {\n  const text = item.json.output?.[0]?.content?.[0]?.text;\n  if (!text) continue;\n\n  const parsed = typeof text === 'string' ? JSON.parse(text) : text;\n  const { filer_name, filing_date, filing_id, trades } = parsed;\n\n  if (!Array.isArray(trades)) continue;\n\n  for (const trade of trades) {\n    allTrades.push({\n      json: {\n        filer_name,\n        filing_date,\n        filing_id,\n        ...trade\n      }\n    });\n  }\n}\n\nreturn allTrades;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        -288
+      ],
+      "id": "9be0a90a-796d-4971-9e22-eea6051921b6",
+      "name": "Code in JavaScript10",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "url": "=https://disclosures-clerk.house.gov/public_disc/financial-pdfs/{{$now.year}}FD.zip",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1232,
+        -192
+      ],
+      "id": "197ac730-dd42-4d79-924c-01930a68264f",
+      "name": "PTR Request"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        -1008,
+        -192
+      ],
+      "id": "1f15b8f1-03f5-40e6-8e0a-c20e2af9b69e",
+      "name": "Extract Files"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst results = [];\n\nfor (const [key, binaryData] of Object.entries(item.binary)) {\n  results.push({\n    json: { fileName: binaryData.fileName || key },\n    binary: { data: binaryData }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        -192
+      ],
+      "id": "936bf48c-814c-43dd-a040-6dfc567ae9bc",
+      "name": "Split Files"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "011c8b52-512d-4db8-819f-e9f6cca2a4ba",
+              "leftValue": "={{ $binary.data.fileName }}",
+              "rightValue": ".xml",
+              "operator": {
+                "type": "string",
+                "operation": "endsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        -560,
+        -192
+      ],
+      "id": "76a12d84-87cb-4f6b-8381-a5686cf12e5f",
+      "name": "Filter For XML"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// TOGGLE — switch between modes here\n// 'names'  → filter by watchlist, P filings only\n// 'recent' → all P filings from the last N days\n// ============================================\nconst MODE           = 'recent';   // 'names' or 'recent'\nconst NAMES_TO_WATCH = ['Steube'];\nconst RECENT_DAYS    = 4;\n\n// ============================================\nconst xmlString = $input.first().json.data;\n\nconst memberBlocks = xmlString.match(/<Member>[\\s\\S]*?<\\/Member>/g) || [];\n\nconst members = memberBlocks.map(block => {\n  const get = (tag) => {\n    const m = block.match(new RegExp(`<${tag}>([^<]*)<\\/${tag}>`));\n    return m ? m[1].trim() : '';\n  };\n  return {\n    last:       get('Last'),\n    first:      get('First'),\n    filingType: get('FilingType'),\n    stateDst:   get('StateDst'),\n    year:       get('Year'),\n    filingDate: get('FilingDate'),\n    docID:      get('DocID'),\n  };\n});\n\nlet filtered;\n\nif (MODE === 'names') {\n  filtered = members.filter(m => NAMES_TO_WATCH.includes(m.last) && m.filingType === 'P');\n\n  // For name mode — deduplicate to latest filing per person\n  const latestByName = {};\n  for (const m of filtered) {\n    const date = new Date(m.filingDate);\n    if (!latestByName[m.last] || date > new Date(latestByName[m.last].filingDate)) {\n      latestByName[m.last] = m;\n    }\n  }\n  filtered = Object.values(latestByName);\n\n} else {\n  // recent mode — all P filings within last RECENT_DAYS days\n  const cutoff = new Date();\n  cutoff.setHours(0, 0, 0, 0);\n  cutoff.setDate(cutoff.getDate() - RECENT_DAYS);\n\n  filtered = members.filter(m => {\n    if (m.filingType !== 'P') return false;\n    const date = new Date(m.filingDate);\n    return date >= cutoff;\n  });\n}\n\nif (filtered.length === 0) {\n  return [{ json: { debug: true, mode: MODE, blockCount: memberBlocks.length, cutoffOrNames: MODE === 'names' ? NAMES_TO_WATCH : RECENT_DAYS + ' day(s)' } }];\n}\n\nreturn filtered.map(m => ({ json: m }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        -192
+      ],
+      "id": "eafbff39-6c06-465e-9abd-888ac175acf6",
+      "name": "Filings"
+    },
+    {
+      "parameters": {
+        "url": "=https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{{$json.year}}/{{ $('Filings').item.json.docID }}.pdf",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        336,
+        -192
+      ],
+      "id": "c3fa915b-2a48-4ea4-afe3-2cb7af0971f1",
+      "name": "Filing Report",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "deleteFile",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Upload a file').first().json.id }}",
+          "mode": "id"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        2256,
+        -112
+      ],
+      "id": "ec73ab92-dde2-4c9e-82f5-b09970067e49",
+      "name": "Delete a file",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "openAiApi": {
+          "id": "QUqMLJOlvaHlpVfE",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6
+              ],
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1456,
+        -192
+      ],
+      "id": "7c860288-bf87-4ccc-9cad-6bae72bd2366",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9813131c-1192-413f-895d-d92978c372d4",
+              "leftValue": "={{ $json.asset_name }}",
+              "rightValue": "TREAS",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        1584,
+        -288
+      ],
+      "id": "70adced6-ee7f-41d4-b758-9d1992cb0703",
+      "name": "Filter",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Congressional Trading Updated",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        560,
+        -480
+      ],
+      "id": "e2d7ec67-c547-4cf6-aaa5-5de77b73e89c",
+      "name": "Send a text message1",
+      "webhookId": "5719efc2-905f-4e63-a793-a3f2d4672d8f",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "No new filings today 📝",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        560,
+        -96
+      ],
+      "id": "a124a119-46c7-4302-a96b-6b1ff49a9371",
+      "name": "No Filings",
+      "webhookId": "5719efc2-905f-4e63-a793-a3f2d4672d8f",
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        784,
+        -288
+      ],
+      "id": "e09b69d5-280c-43cf-99f9-dc3f0d038394",
+      "name": "Wait",
+      "webhookId": "44db87ec-12b9-439e-baf3-56509727e961"
+    },
+    {
+      "parameters": {
+        "jsCode": "// PTR workflow :: \"Trades to rows\" — after the parser, before a Postgres \"Execute Query\" node.\n// Normalises the parsed PTR rows (MM/DD/YYYY dates -> ISO, upper-case tickers, BUY/SELL) and\n// returns ONE item carrying the whole batch as JSON, so the insert needs no query parameters.\nconst iso = s => { if (!s) return null; const m = String(s).trim().match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);\n  if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`; return /^\\d{4}-\\d{2}-\\d{2}$/.test(s) ? s : null; };\nconst rows = [];\nfor (const it of $input.all()) {\n  const j = it.json || {};\n  const ticker = String(j.ticker || '').trim().toUpperCase();\n  const filing = iso(j.filing_date);\n  if (!ticker || !filing || !j.filer_name) continue;                    // unusable row\n  const action = /sell|sale|sold/i.test(j.action || '') ? 'SELL' : /buy|purchase/i.test(j.action || '') ? 'BUY' : String(j.action || '').toUpperCase();\n  rows.push({ filing_id: String(j.filing_id || ''), filer_name: String(j.filer_name).trim(), ticker,\n    asset_name: j.asset_name || null, action, instrument: (j.instrument || 'shares').toLowerCase(),\n    transaction_date: iso(j.transaction_date), notification_date: iso(j.notification_date), filing_date: filing,\n    description: j.description || null });\n}\nreturn [{ json: { payload: JSON.stringify(rows).replace(/\\$v\\$/g, ''), n: rows.length } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        -288
+      ],
+      "id": "3c4ef04a-a8b4-4994-8a43-dbeb6f877e33",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into politician_trade (filing_id, filer_name, ticker, asset_name, action, instrument,\n                        transaction_date, notification_date, filing_date, description)\nselect filing_id, filer_name, ticker, asset_name, action, instrument,\n       transaction_date, notification_date, filing_date, description\nfrom jsonb_populate_recordset(null::politician_trade, $v$ {{ $json.payload }} $v$::jsonb)\non conflict (filing_id, ticker, action, coalesce(instrument,''), transaction_date, coalesce(description,'')) do nothing;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        2032,
+        -288
+      ],
+      "id": "5bd6262f-01da-40e9-897b-7a9721389308",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        336,
+        -480
+      ],
+      "id": "35f9fabf-2c94-433d-96ea-5948869bab90",
+      "name": "Limit"
+    }
+  ],
+  "connections": {
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Filings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Filing Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload a file": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PTR Request": {
+      "main": [
+        [
+          {
+            "node": "Extract Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Files": {
+      "main": [
+        [
+          {
+            "node": "Split Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Files": {
+      "main": [
+        [
+          {
+            "node": "Filter For XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter For XML": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filings": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filing Report": {
+      "main": [
+        [
+          {
+            "node": "Upload a file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Filings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete a file": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "PTR Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript10": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Delete a file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "hFzGgakH6rLpa0MU",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "versionId": "1091f9bf-ea68-4265-8b58-fee378c4bc2d",
+  "activeVersionId": "1091f9bf-ea68-4265-8b58-fee378c4bc2d",
+  "versionCounter": 206,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-04-12T09:36:44.547Z",
+      "createdAt": "2026-04-12T09:36:44.547Z",
+      "role": "workflow:owner",
+      "workflowId": "2uIxZE7RfOS61ipr",
+      "projectId": "PjanIvva1Mlx8hZV",
+      "project": {
+        "updatedAt": "2026-02-14T16:55:09.426Z",
+        "createdAt": "2026-02-14T16:15:58.481Z",
+        "id": "PjanIvva1Mlx8hZV",
+        "name": "Jack Eldridge <you@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "b5463656-ed61-440e-acc2-9c43a8cb5056"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 1091f9bf",
+    "description": ""
+  }
+}

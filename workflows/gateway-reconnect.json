@@ -1,0 +1,584 @@
+{
+  "updatedAt": "2026-09-17T01:27:58.770Z",
+  "createdAt": "2026-05-10T03:56:34.871Z",
+  "id": "AI7cbeyVbVBJ1geZ",
+  "name": "Stock Analysis - Gateway Reconnect 🔌",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "amount": 120
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1088,
+        -160
+      ],
+      "id": "92767e40-4896-4df8-8238-f68f52be3c61",
+      "name": "Wait1",
+      "webhookId": "a0f89e8b-7b1d-4e37-9259-caabf80cbf74"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Gateway Reconnecting... ⏳",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        416,
+        -160
+      ],
+      "id": "69235f94-5e54-4e0a-9056-6f55fd2b7f96",
+      "name": "Reconnecting to Gateway",
+      "webhookId": "c8686c59-c24e-4a86-b484-b01d2a6240e9",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "lml3xFiOXmecfE6I",
+          "name": "Telegram account"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.17.0.1:8080/gateway/restart",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        640,
+        -160
+      ],
+      "id": "45809632-c41f-41de-8460-a1f2bfa55f30",
+      "name": "Gateway Restart",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "http://172.17.0.1:8080/health",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1312,
+        -160
+      ],
+      "id": "e2dd44e8-94d8-442f-8c60-400d6ea0b9ad",
+      "name": "HealthCheck",
+      "retryOnFail": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "80a977bc-e5f8-46db-9b4f-3de360acf54e",
+              "leftValue": "={{ $json.ib_connected }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1536,
+        -160
+      ],
+      "id": "d339de84-479f-41d5-bbca-386727dd7fd8",
+      "name": "Gateway Reactivated",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -704,
+        -160
+      ],
+      "id": "dfc6b1ed-5a81-465e-a420-906194a6720e",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "48a71c2d-dc40-48b8-a9cf-b4255441ca2b",
+              "leftValue": "={{ $('Gateway Restart').all().length }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        864,
+        -224
+      ],
+      "id": "90d84cb0-6582-4d67-85b7-1a5be9d408fc",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ef0d25f2-0820-422a-b286-5d88e98b4f9a",
+              "name": "=Time",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        192,
+        -160
+      ],
+      "id": "46d82aca-4d02-45c1-9f0e-c9bddef3b955",
+      "name": "Time"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH attempted_update AS (\n    UPDATE gateway_restart_lock\n    SET locked     = TRUE,\n        locked_at  = NOW(),\n        locked_by  = '{{ $execution.id }}'\n    WHERE id = 1\n      AND (\n            locked = FALSE                              \n            OR locked_at < NOW() - INTERVAL '30 minutes' \n          )\n    RETURNING *\n)\n-- 1. If the update succeeded, return that row and mark lock_acquired as true\nSELECT *, TRUE AS lock_acquired \nFROM attempted_update\n\nUNION ALL\n\n-- 2. If the update failed, fallback to pulling the current state and mark lock_acquired as false\nSELECT *, FALSE AS lock_acquired \nFROM gateway_restart_lock\nWHERE id = 1 \n  AND NOT EXISTS (SELECT 1 FROM attempted_update);\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -256,
+        -160
+      ],
+      "id": "6e91ed46-4081-47f5-b93e-68bd977349f7",
+      "name": "Job Lock",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE gateway_restart_lock\nSET locked    = FALSE,\n    locked_at = NULL,\n    locked_by = NULL\nWHERE id = 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1760,
+        -256
+      ],
+      "id": "09a54d95-f9ee-4bc2-9d1c-011bcae212a6",
+      "name": "Unlock",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ae1a4a71-b8e0-4f16-a691-0a5cf1984450",
+              "leftValue": "={{ $json.locked_by === $execution.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "d4057dbb-b65c-4a16-bb79-097b99982415",
+              "leftValue": "={{ $json.locked }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -32,
+        -160
+      ],
+      "id": "f0cab182-1eab-4085-a625-7744609f2176",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "url": "http://172.17.0.1:8080/health",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -480,
+        -160
+      ],
+      "id": "244596c1-7c41-43e1-b89c-015178daf444",
+      "name": "HealthCheck1",
+      "retryOnFail": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e633b845-5c44-4dd4-91ff-adf5c0022bd3",
+              "leftValue": "={{ $now.diff(DateTime.fromISO($('Time').first().json.Time), 'minutes').minutes >= 5 }}",
+              "rightValue": "={{ $now.diff(DateTime.fromISO($('Time').first().json.Time), 'minutes').minutes >= 5 }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1760,
+        -64
+      ],
+      "id": "8b4e546b-85a9-4b41-b72e-59940c0688b2",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "amount": 120
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1984,
+        64
+      ],
+      "id": "bc8a103f-f59d-4d80-87a9-1b9133eca737",
+      "name": "Wait",
+      "webhookId": "a0f89e8b-7b1d-4e37-9259-caabf80cbf74"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Gateway Reconnect Attempt Failed ⚠️",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1984,
+        -352
+      ],
+      "id": "70f9ae59-f34a-41ba-b5d2-f12b0b58d51a",
+      "name": "Give-Up Message",
+      "webhookId": "a5f17637-c356-4e06-aaca-1a4127b06e8d",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "HealthCheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reconnecting to Gateway": {
+      "main": [
+        [
+          {
+            "node": "Gateway Restart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gateway Restart": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "HealthCheck": {
+      "main": [
+        [
+          {
+            "node": "Gateway Reactivated",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gateway Reactivated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gateway Reactivated": {
+      "main": [
+        [
+          {
+            "node": "Unlock",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "HealthCheck1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Give-Up Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Time": {
+      "main": [
+        [
+          {
+            "node": "Reconnecting to Gateway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Lock": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HealthCheck1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Job Lock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Give-Up Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Gateway Restart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "hFzGgakH6rLpa0MU",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "versionId": "dccb3bce-c79f-450f-b505-31713b346c8c",
+  "activeVersionId": "dccb3bce-c79f-450f-b505-31713b346c8c",
+  "versionCounter": 295,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-05-10T03:56:34.874Z",
+      "createdAt": "2026-05-10T03:56:34.874Z",
+      "role": "workflow:owner",
+      "workflowId": "AI7cbeyVbVBJ1geZ",
+      "projectId": "PjanIvva1Mlx8hZV",
+      "project": {
+        "updatedAt": "2026-02-14T16:55:09.426Z",
+        "createdAt": "2026-02-14T16:15:58.481Z",
+        "id": "PjanIvva1Mlx8hZV",
+        "name": "Jack Eldridge <you@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "b5463656-ed61-440e-acc2-9c43a8cb5056"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version dccb3bce",
+    "description": ""
+  }
+}

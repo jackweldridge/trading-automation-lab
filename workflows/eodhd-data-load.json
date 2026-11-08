@@ -1,0 +1,1895 @@
+{
+  "updatedAt": "2026-10-08T18:05:32.456Z",
+  "createdAt": "2026-06-05T03:49:59.875Z",
+  "id": "pzwgcFjkzlsqV7FO",
+  "name": "Data Extraction - EODHD Data Load 🪵",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6
+              ],
+              "triggerAtHour": 4,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -2512,
+        -1056
+      ],
+      "id": "5668c366-b333-4522-b783-df3357c8dc1f",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "=https://eodhd.com/api/exchange-symbol-list/{{ $json.my_exchange }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "api_token",
+              "value": "YOUR_EODHD_KEY"
+            },
+            {
+              "name": "fmt",
+              "value": "json"
+            },
+            {
+              "name": "type",
+              "value": "common_stock"
+            },
+            {
+              "name": "delisted",
+              "value": "0"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1712,
+        -48
+      ],
+      "id": "0c99806a-3ba7-4e3d-8c90-f12cde07c995",
+      "name": "TickerUniverse"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Input to the TickerUniverse HTTP node — one item per exchange code.\n *\n * NYSE returns only ~16 NYSE MKT strays, not the ~290-name NYSE American\n * board, so AMEX must be called separately. Try 'AMEX'; if it 404s or returns\n * a stub, fall back to 'NYSE MKT'.\n */\nreturn [\n  { json: { my_exchange: 'NYSE'   } },\n  { json: { my_exchange: 'NASDAQ' } },\n  { json: { my_exchange: 'BATS'   } },\n  /*{ json: { my_exchange: 'LSE'    } },*/\n  { json: { my_exchange: 'AMEX'   } },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        -544
+      ],
+      "id": "b0c237df-30e2-4840-9ad5-232d85c3330d",
+      "name": "Exchanges",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "daily_prices",
+          "mode": "list",
+          "cachedResultName": "daily_prices"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "open": "={{ $json.open }}",
+            "high": "={{ $json.high }}",
+            "low": "={{ $json.low }}",
+            "close": "={{ $json.close }}",
+            "volume": "={{ $json.volume }}",
+            "ticker": "={{ $json.code }}",
+            "date": "={{ $json.date }}",
+            "adjusted_close": "={{ $json.close }}"
+          },
+          "matchingColumns": [
+            "ticker",
+            "date"
+          ],
+          "schema": [
+            {
+              "id": "ticker",
+              "displayName": "ticker",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "open",
+              "displayName": "open",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "high",
+              "displayName": "high",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "low",
+              "displayName": "low",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "close",
+              "displayName": "close",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "adjusted_close",
+              "displayName": "adjusted_close",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "volume",
+              "displayName": "volume",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1488,
+        -544
+      ],
+      "id": "1b51d2bb-ff0d-4355-8b7c-7b91757b398b",
+      "name": "IncrementalPriceLoad",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://eodhd.com/api/eod-bulk-last-day/{{ $('Loop Over Items1').item.json.my_exchange}}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "api_token",
+              "value": "YOUR_EODHD_KEY"
+            },
+            {
+              "name": "fmt",
+              "value": "json"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1712,
+        -544
+      ],
+      "id": "88bb52f0-693e-487c-a5d9-9cfe4b2b04c7",
+      "name": "BulkExchangeEOD"
+    },
+    {
+      "parameters": {
+        "content": "Historical data loader for newly added tickers",
+        "height": 480,
+        "width": 1812,
+        "color": "#1F4447"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2224,
+        -304
+      ],
+      "typeVersion": 1,
+      "id": "4d7b89ca-100d-44cc-a57b-82f059542e10",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "Daily incremental price load using bulk exchange endpoint",
+        "height": 464,
+        "width": 1844,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2224,
+        -816
+      ],
+      "typeVersion": 1,
+      "id": "a71dc14d-833e-4909-869f-fb195b6b3f70",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Latest EOD Prices Loaded 🔢",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -592,
+        -752
+      ],
+      "id": "be8ec40b-da65-43a0-9218-f17e1e526efc",
+      "name": "PricesLoaded",
+      "webhookId": "b815504a-dc09-4574-8b3e-b14ffa9ceba8",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://172.17.0.1:8080/orders?status=Cancelled&action=BUY",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": []
+        },
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2160,
+        -1696
+      ],
+      "id": "fdd542df-334d-403d-9429-d46c8078b03e",
+      "name": "Get IBKR IDs1",
+      "executeOnce": false,
+      "alwaysOutputData": false,
+      "retryOnFail": false,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "AI7cbeyVbVBJ1geZ",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/AI7cbeyVbVBJ1geZ",
+          "cachedResultName": "Stock Analysis - Gateway Reconnect 🔌"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -1744,
+        -1680
+      ],
+      "id": "eba24a76-7289-4a1a-b47f-db9e3f554f83",
+      "name": "Gateway Reconnect 🔌"
+    },
+    {
+      "parameters": {
+        "operation": "deleteTable",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "trade_log",
+          "mode": "list",
+          "cachedResultName": "trade_log"
+        },
+        "deleteCommand": "delete",
+        "where": {
+          "values": [
+            {
+              "column": "perm_id",
+              "value": "={{ $json.permId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1952,
+        -1760
+      ],
+      "id": "dbc0482d-57a2-4f00-b66b-5a9cc61cc170",
+      "name": "Delete table or rows",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Delete entries from the trade_log when BUY orders not filled by IBKR",
+        "height": 336,
+        "width": 640,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2224,
+        -1808
+      ],
+      "typeVersion": 1,
+      "id": "fe8a3a11-43d1-4fec-990d-2b73dffe4f93",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "operation": "deleteTable",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "intraday_rvol_rejections",
+          "mode": "list",
+          "cachedResultName": "intraday_rvol_rejections"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2160,
+        -1360
+      ],
+      "id": "0272cc0e-9057-489f-9205-bbea877c3a04",
+      "name": "Delete table or rows1",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Delete entries from intraday_rvol_rejections and alert_state",
+        "height": 240,
+        "width": 864,
+        "color": "#541C4D"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2224,
+        -1424
+      ],
+      "typeVersion": 1,
+      "id": "0269a8f1-9ad6-442d-8be4-f673a9bda8de",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "Earnings Calendar - Earnings from the prior day in one stream and all earnings for the next 21 days in the parallel branch",
+        "height": 272,
+        "width": 1408,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2224,
+        -1136
+      ],
+      "typeVersion": 1,
+      "id": "bd4e2c99-0a73-42a1-8dd6-fda49c9436bd",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM alert_state WHERE last_sent < now() - interval '7 days' AND (ack_until IS NULL OR ack_until < now());",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1952,
+        -1360
+      ],
+      "id": "1993b28d-8ffc-4e8f-b88e-566b3fde51fe",
+      "name": "Delete Ackd SL Cxl/Rbk",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://eodhd.com/api/eod-bulk-last-day/INDX",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "api_token",
+              "value": "YOUR_EODHD_KEY"
+            },
+            {
+              "name": "fmt",
+              "value": "json"
+            },
+            {
+              "name": "date",
+              "value": "={{ (() => { const d = new Date(); do { d.setDate(d.getDate() - 1); } while ([0,6].includes(d.getDay())); return d.toISOString().split('T')[0]; })() }}"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1056,
+        -752
+      ],
+      "id": "f10ac996-be87-4827-9992-a7b865e560bd",
+      "name": "Indices EOD",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "daily_prices",
+          "mode": "list",
+          "cachedResultName": "daily_prices"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "open": "={{ $json.open }}",
+            "high": "={{ $json.high }}",
+            "low": "={{ $json.low }}",
+            "close": "={{ $json.close }}",
+            "volume": "={{ $json.volume }}",
+            "ticker": "={{ $json.code }}",
+            "date": "={{ $json.date }}",
+            "adjusted_close": "={{ $json.close }}"
+          },
+          "matchingColumns": [
+            "ticker",
+            "date"
+          ],
+          "schema": [
+            {
+              "id": "ticker",
+              "displayName": "ticker",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "open",
+              "displayName": "open",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "high",
+              "displayName": "high",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "low",
+              "displayName": "low",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "close",
+              "displayName": "close",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "adjusted_close",
+              "displayName": "adjusted_close",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "volume",
+              "displayName": "volume",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -832,
+        -752
+      ],
+      "id": "73a5fdeb-173a-4391-945e-f72b2474137f",
+      "name": "IncrementalPriceLoad1",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://eodhd.com/api/calendar/earnings",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "from",
+              "value": "={{ $now.minus(90, 'days').format('yyyy-MM-dd') }}"
+            },
+            {
+              "name": "to",
+              "value": "={{ $now.plus(60,'days').format('yyyy-MM-dd') }}"
+            },
+            {
+              "name": "api_token",
+              "value": "YOUR_EODHD_KEY"
+            },
+            {
+              "name": "fmt",
+              "value": "json"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1936,
+        -1056
+      ],
+      "id": "b12a47c7-8119-4c36-af8d-11852c7d0ee9",
+      "name": "Upcoming Earnings",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "truncate table earnings_upcoming",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2160,
+        -1056
+      ],
+      "id": "f349049d-8000-43c0-944a-6c50e5a3b779",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "earnings_upcoming",
+          "mode": "list",
+          "cachedResultName": "earnings_upcoming"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticker": "={{ $json.ticker }}",
+            "report_date": "={{ $json.report_date }}",
+            "period_end": "={{ $json.date }}",
+            "before_after_market": "={{ $json.before_after_market }}",
+            "loaded_at": "={{ $now.format('yyyy-MM-dd') }}",
+            "exchange": "={{ $json.exchange }}"
+          },
+          "matchingColumns": [
+            "ticker",
+            "report_date",
+            "exchange"
+          ],
+          "schema": [
+            {
+              "id": "ticker",
+              "displayName": "ticker",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "report_date",
+              "displayName": "report_date",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "period_end",
+              "displayName": "period_end",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "before_after_market",
+              "displayName": "before_after_market",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "loaded_at",
+              "displayName": "loaded_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "exchange",
+              "displayName": "exchange",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1488,
+        -1056
+      ],
+      "id": "ff27a1c2-2848-49d8-8a0e-e44b82b91cf6",
+      "name": "Update Upcoming Earnings Table",
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "FmzVebzKsmoh0FJ6",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/FmzVebzKsmoh0FJ6",
+          "cachedResultName": "Stock Analysis - Fundamentals 🧱"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "exchange": "={{ $json.exchange }}",
+            "ticker": "={{ $json.ticker }}"
+          },
+          "matchingColumns": [
+            "ticker"
+          ],
+          "schema": [
+            {
+              "id": "ticker",
+              "displayName": "ticker",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "exchange",
+              "displayName": "exchange",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -1040,
+        -1056
+      ],
+      "id": "1f9d2c70-9399-40bf-8779-b81e4b4199ab",
+      "name": "Fundamentals 🧱"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select ticker\nfrom universe\nwhere type = 'Common Stock'",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1712,
+        -224
+      ],
+      "id": "f7d1533a-fdbc-4d76-b6e3-d0241b6375e6",
+      "name": "MyCurrentUniverse",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "ADD",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "b2cd8b28-33bc-4d4a-bd79-6a8d131e7950"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ADD"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d84e2cf0-abcf-4f86-a90f-27c07ca88e4d",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "MISS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "DELETE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "43d5ab52-145b-4e6b-a1ca-49689a6a8821",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "CLEANUP",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CLEANUP"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -1056,
+        -240
+      ],
+      "id": "beeb6366-383f-4134-9cf9-7eec8fc2cdf8",
+      "name": "Switch",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * n8n Code node — \"Run Once for All Items\".\n *\n *   TickerUniverse (HTTP: EODHD exchange-symbol-list, one call per venue) ─┐\n *   MyCurrentUniverse (Postgres: ticker, miss_count)                      ─┴─> THIS\n *     -> Filter (action != 'SUMMARY')\n *        -> Switch on `action`\n *             ADD          -> Add New Ticker sub-workflow\n *             CLEANUP      -> hard delete (junk instruments + ISIN dupes)\n *             MISS         -> UPDATE universe SET miss_count = miss_count + 1\n *             SEEN         -> UPDATE universe SET miss_count = 0\n *             DELIST       -> mark inactive (NOT delete — see EQR note)\n *             OUT_OF_SCOPE -> no-op / log\n *             REVIEW       -> no-op / log\n *\n * Requires:\n *   ALTER TABLE universe ADD COLUMN IF NOT EXISTS miss_count integer NOT NULL DEFAULT 0;\n * and MyCurrentUniverse must SELECT it, UNFILTERED (no WHERE is_delisted / type\n * clause — anything the query hides looks absent and re-queues as an ADD forever).\n *\n * Design notes, each earned the hard way:\n *\n *  - The feed tags EVERY row \"Common Stock\", so Type carries no signal.\n *    Instrument class is inferred from the code.\n *  - Absence from one pull is not evidence of delisting. A ticker must be\n *    missing MISS_THRESHOLD consecutive runs before it is even proposed.\n *  - EQR (Equity Residential, S&P 500, ~$25bn) is simply absent from EODHD's\n *    NYSE list — alphabetical continuity around it is intact, so it is a\n *    vendor hole, not truncation. This feed is never the sole authority for\n *    deletion. Mark inactive; do not DELETE.\n *  - A shared ISIN only means \"same security\" when the codes are suffix\n *    variants. EODHD emits wrong ISINs shared by unrelated companies\n *    (ALBT/CHGA, BSIN/USEG, GAMB/GRSD); collapsing those destroys a listing.\n *  - Deduped is not absent. Dedupe losers go to CLEANUP, never to MISS.\n *  - BATS rows often carry Name === Code and are largely leveraged ETNs.\n *    No name means nothing to filter on, so it is never safe to auto-ingest.\n */\n\n// ---------------------------------------------------------------- config ----\n\nconst EXCHANGE_NODE = 'Loop Over Items2';\nconst UNIVERSE_NODE = 'MyCurrentUniverse';\n\n// Venues I screen. NYSE returns NYSE ARCA and a ~16-row NYSE MKT stub, which\n// is why AMEX is called separately upstream. ARCA is deliberately absent: it\n// is overwhelmingly ETFs, and ARCA holdings are parked, never deleted.\n\nconst ACCEPTED_EXCHANGES = new Set(['NYSE', 'NASDAQ', 'NYSE MKT', 'AMEX', 'BATS', 'LSE']);\n\n// Per-venue floor. A single total is useless across a multi-call pull: NASDAQ\n// alone clears any global minimum while a silently failed AMEX call sends\n// every NYSE American holding into the miss counter.\n// Set these from the FIRST successful run's rows_by_exchange, not from guesses.\nconst MIN_ROWS_PER_EXCHANGE = {\n  'NYSE': 2000,\n  'NASDAQ': 3000,\n  'BATS': 20,\n  'AMEX': 200,   // NYSE American, own call — returned 259\n  // 'NYSE MKT' has no floor: it is a ~16-row stub that leaks in via the NYSE\n  // call. Those rows are still accepted (it stays in ACCEPTED_EXCHANGES),\n  // there is just no minimum to enforce on a venue nothing calls directly.\n};\n\nconst MIN_EXCHANGE_ROWS = 1000;   // global backstop\n\n// Consecutive absent runs before a ticker is proposed for delisting.\nconst MISS_THRESHOLD = 5;\n\n// Floor on threshold-crossers only. Should almost never fire.\nconst MAX_DELISTS_ABS = 40;\nconst MAX_DELISTS_PCT = 1;\n\nconst TICKER_FIELDS = ['ticker', 'Ticker', 'symbol', 'Symbol', 'code', 'Code'];\nconst MISS_FIELDS = ['miss_count', 'missCount', 'misses'];\n\n// ------------------------------------------------------------- filtering ----\n\n// Hyphenated non-common classes. Class shares (-A, -B) are NOT here:\n// BRK-B, GEF-B, BF-B, AGM-A, CWEN-A are common stock.\nconst NON_COMMON_SUFFIX = /-(WT|WS|W|WI|RW|R|RI|U|UN|P|PR)(-[A-Z0-9]+)?$/;\nconst PREFERRED_SUFFIX  = /-P[A-Z]$/;\nconst FIVE_LETTER_PFD   = /^[A-Z]{4}[OPLMNZ]$/;\nconst TEST_CODE         = /^(Z[A-Z]ZZT|N?TEST(-[A-Z])?|PTEST(-[A-Z])?)$/;\nconst TEST_NAME = /Tick Pilot|Test Control|TEST STOCK/i;\n\n\n\n// AILEQ/MMATQ (bankruptcy stubs) are indistinguishable by code from AMBIQ\n// (Ambipar, live NYSE). Ambiguous -> REVIEW, never a silent exclusion.\nconst MAYBE_BANKRUPT = /^[A-Z]{4,}Q$/;\n\n// NASDAQ appends a 5th letter with no hyphen. Only a derivative when the\n// stripped base is itself in the feed — that check is what stops this eating\n// legitimate five-letter tickers.\nconst NASDAQ_DERIV_SUFFIX = [\n  { re: /^([A-Z]{2,4})WW$/, reason: 'warrant' },\n  { re: /^([A-Z]{3,4})W$/,  reason: 'warrant' },\n  { re: /^([A-Z]{3,4})R$/,  reason: 'rights'  },\n  { re: /^([A-Z]{3,4})U$/,  reason: 'unit'    },\n  { re: /^([A-Z]{2,4})UN$/, reason: 'unit'    },\n];\n\nconst FUND_NAME = new RegExp([\n  'ETF', 'Exchange[- ]Traded Fund', 'ProShares', 'iShares', 'Direxion',\n  'Bitwise', 'Teucrium', 'Sprott Physical', 'FundVantage', 'Series Trust',\n  'Investment Dimensions', 'Listed Funds Trust', 'Timothy Plan',\n  'Advisor Managed Portfolios', 'Closed Fund', 'Municipal Income',\n  'Term Trust', 'Zacks Trust', 'MicroSectors', 'Covington Trust',\n].join('|'), 'i');\n\nconst SPAC_NAME = /Acquisition (Corp|Company|Corporation|Limited|Ltd)|Merger Corp|Capital Corp\\b/i;\n\n// ------------------------------------------------------------- utilities ----\n\n/** Normalise to the hyphen form used in Postgres (GEF-B, not GEF.B / GEF B). */\nfunction normaliseTicker(raw) {\n  if (raw === null || raw === undefined) return null;\n  const t = String(raw).trim().toUpperCase().replace(/[.\\s]/g, '-');\n  return t || null;\n}\n\nfunction pickField(json, fields) {\n  if (!json || typeof json !== 'object') return null;\n  for (const f of fields) {\n    if (json[f] !== undefined && json[f] !== null && json[f] !== '') return json[f];\n  }\n  return null;\n}\n\nfunction readNode(nodeName) {\n  let items;\n  try {\n    items = $(nodeName).all();\n  } catch (e) {\n    throw new Error(\n      `Cannot reach node \"${nodeName}\". Check the name matches exactly ` +\n      `(case sensitive) and that the node ran in this execution.`\n    );\n  }\n  const rows = [];\n  for (const item of items) {\n    const json = item.json;\n    if (Array.isArray(json)) {\n      for (const r of json) if (r && typeof r === 'object') rows.push(r);\n    } else if (json && typeof json === 'object') {\n      const vals = Object.values(json);\n      if (vals.length === 1 && Array.isArray(vals[0])) {\n        for (const r of vals[0]) if (r && typeof r === 'object') rows.push(r);\n      } else {\n        rows.push(json);\n      }\n    }\n  }\n  return rows;\n}\n\n/** Code-only classification. Works on my universe rows, which carry no Name. */\nfunction classifyCode(code) {\n  if (!code)                        return { keep: false, reason: 'no_code' };\n  if (TEST_CODE.test(code))         return { keep: false, reason: 'test_symbol' };\n  if (NON_COMMON_SUFFIX.test(code)) return { keep: false, reason: 'warrant_right_or_unit' };\n  if (PREFERRED_SUFFIX.test(code))  return { keep: false, reason: 'preferred_series' };\n  if (FIVE_LETTER_PFD.test(code))   return { review: true, reason: 'maybe_preferred_series' };\n  if (MAYBE_BANKRUPT.test(code))    return { review: true, reason: 'maybe_bankruptcy_stub' };\n  return { keep: true };\n}\n\n/** Un-hyphenated NASDAQ derivative whose base trades in the feed? */\nfunction derivativeOf(code, allCodes) {\n  for (const { re, reason } of NASDAQ_DERIV_SUFFIX) {\n    const m = re.exec(code);\n    if (m && allCodes.has(m[1])) return `${reason}_of_${m[1]}`;\n  }\n  return null;\n}\n\n/** Full classification for one exchange row (code + name + exchange). */\nfunction classifyRow(row) {\n  const code = normaliseTicker(row.Code);\n  const name = typeof row.Name === 'string' ? row.Name.trim() : '';\n  const exch = typeof row.Exchange === 'string' ? row.Exchange.trim() : '';\n  if (code && /^[0-9]/.test(code)) {\n    return { outOfScope: true, reason: 'foreign_listing_digit_code' };\n  }\n  if (!ACCEPTED_EXCHANGES.has(exch)) {\n    return { outOfScope: true, reason: `exchange_${exch || 'unknown'}` };\n  }\n\n  const byCode = classifyCode(code);\n\n  // FIVE_LETTER_PFD only means preferred when the name backs it up; plenty of\n  // ordinary NASDAQ tickers are five letters ending in those characters.\n  if (byCode.review && byCode.reason === 'maybe_preferred_series') {\n    if (TEST_NAME.test(name)) return { keep: false, reason: 'test_symbol' };\n    if (FUND_NAME.test(name)) return { keep: false, reason: 'preferred_series' };\n    return { keep: true };\n  }\n  if (!byCode.keep) return byCode;\n\n  if (FUND_NAME.test(name)) return { review: true, reason: 'looks_like_fund' };\n  if (SPAC_NAME.test(name)) return { review: true, reason: 'looks_like_spac' };\n\n  // ...in classifyRow, replacing the single no-name check:\n  if (!name || name === code) {\n    // BATS nameless rows are overwhelmingly leveraged ETNs — park and forget.\n    // AMEX/NYSE MKT nameless rows are more likely real small caps with a thin\n    // vendor record, and are worth a manual look or a second-source lookup.\n    return {\n      review: true,\n      reason: exch === 'BATS' ? 'no_name_bats_likely_etn' : 'no_name_needs_lookup',\n    };\n  }\n  return byCode;\n}\n\n/** Are two codes plausibly the same instrument (suffix variants)? */\nfunction sameSecurity(a, b) {\n  const bare = (s) => s.replace(/-/g, '');\n  const x = bare(a);\n  const y = bare(b);\n  return x.startsWith(y) || y.startsWith(x);\n}\n\n// ------------------------------------------------------------------ main ----\n\nconst exchangeRows = readNode(EXCHANGE_NODE);\nconst universeRows = readNode(UNIVERSE_NODE);\n\nconst seenByExchange = exchangeRows.reduce((a, r) => {\n  const e = (typeof r.Exchange === 'string' ? r.Exchange.trim() : '') || '(blank)';\n  a[e] = (a[e] || 0) + 1;\n  return a;\n}, {});\n\n// -- Feed completeness (per-venue) ------------------------------------------\n// A venue below its floor means an incomplete pull: API hiccup, truncated body,\n// or a market holiday when that venue serves no symbols. Do NOT throw, and do\n// NOT let it drive miss/delist (that would flag every ticker on the missing\n// venue as absent and march it toward DELIST). But ADDs are always safe — a\n// ticker PRESENT in the feed exists — so a closed venue must never block adding\n// tickers from the venues that DID return. Record the shortfall; downstream we\n// suppress only the destructive direction, never ADDs.\nconst shortfalls = [];\nif (exchangeRows.length < MIN_EXCHANGE_ROWS) {\n  shortfalls.push(`TOTAL ${exchangeRows.length}/${MIN_EXCHANGE_ROWS}`);\n}\nfor (const [exch, min] of Object.entries(MIN_ROWS_PER_EXCHANGE)) {\n  const got = seenByExchange[exch] || 0;\n  if (got < min) shortfalls.push(`${exch} ${got}/${min}`);\n}\nconst feedComplete = shortfalls.length === 0;\n\nif (universeRows.length === 0) {\n  throw new Error(\n    `${UNIVERSE_NODE} returned 0 rows. Query failed or the table is empty; ` +\n    `either would queue the entire exchange as ADDs. Aborting.`\n  );\n}\n\n// ticker -> current miss_count\nconst mine = new Map();\nfor (const row of universeRows) {\n  const t = normaliseTicker(pickField(row, TICKER_FIELDS));\n  if (!t) continue;\n  const m = Number(pickField(row, MISS_FIELDS));\n  mine.set(t, Number.isFinite(m) ? m : 0);\n}\n\n// EVERY code in the feed, all venues, all instrument classes. This is what\n// distinguishes \"I don't screen it\" from \"it no longer exists anywhere\".\nconst allCodes = new Set();\nfor (const row of exchangeRows) {\n  const c = normaliseTicker(row.Code);\n  if (c) allCodes.add(c);\n}\n\nconst eligible    = new Map();   // ticker -> { name, exchange, isin }\nconst review      = new Map();\nconst outOfScope  = new Map();\nconst dedupedAway = new Map();   // loser -> { keptAs, isin }\nconst byIsin      = new Map();\nconst excluded    = {};\nconst isinDupes   = [];\nconst badIsins    = [];\n\nfor (const row of exchangeRows) {\n  const verdict = classifyRow(row);\n  const code = normaliseTicker(row.Code);\n  const nameRaw = typeof row.Name === 'string' ? row.Name.trim() : '';\n  const name = nameRaw && nameRaw !== code ? nameRaw : null;\n  const exch = typeof row.Exchange === 'string' ? row.Exchange.trim() : null;\n  const isin = typeof row.Isin === 'string' && row.Isin.trim() ? row.Isin.trim() : null;\n\n  if (verdict.outOfScope) {\n    outOfScope.set(code, { name, exchange: exch, reason: verdict.reason });\n    excluded[verdict.reason] = (excluded[verdict.reason] || 0) + 1;\n    continue;\n  }\n  if (verdict.review) {\n    review.set(code, { name, exchange: exch, isin, reason: verdict.reason });\n    continue;\n  }\n  if (!verdict.keep) {\n    excluded[verdict.reason] = (excluded[verdict.reason] || 0) + 1;\n    continue;\n  }\n\n  if (isin && byIsin.has(isin)) {\n    const incumbent = byIsin.get(isin);\n\n    if (!sameSecurity(code, incumbent)) {\n      // Unrelated companies sharing a vendor ISIN. Keep both; collapsing them\n      // silently deletes a live listing.\n      badIsins.push(`${isin}: ${incumbent} / ${code} -> BAD VENDOR ISIN, both kept`);\n    } else {\n      const preferIncoming =\n        (mine.has(code) && !mine.has(incumbent)) ||\n        (!mine.has(incumbent) && code.includes('-') && !incumbent.includes('-'));\n\n      isinDupes.push(`${isin}: ${incumbent} / ${code} -> kept ${preferIncoming ? code : incumbent}`);\n\n      if (preferIncoming) {\n        eligible.delete(incumbent);\n        dedupedAway.set(incumbent, { keptAs: code, isin });\n      } else {\n        dedupedAway.set(code, { keptAs: incumbent, isin });\n        continue;\n      }\n    }\n  }\n\n  eligible.set(code, { name, exchange: exch, isin });\n  if (isin && !byIsin.has(isin)) byIsin.set(isin, code);\n}\n\n// -- Diff --------------------------------------------------------------------\nconst toAdd      = [...eligible.keys()].filter((t) => !mine.has(t)).sort();\nconst cleanup    = [];\nconst held       = [];\nconst seen       = [];\nconst miss       = [];\nconst delist     = [];\nconst parked     = [];\nconst reviewMine = [];\n\nfor (const [ticker, missCount] of [...mine.entries()].sort()) {\n  // Present in some form: clear any accumulated misses.\n  if (eligible.has(ticker) || review.has(ticker) || outOfScope.has(ticker)) {\n    if (missCount > 0) seen.push(ticker);\n    if (outOfScope.has(ticker)) {\n      const meta = outOfScope.get(ticker);\n      parked.push({ ticker, reason: meta.reason, name: meta.name, exchange: meta.exchange });\n    }\n    continue;\n  }\n\n  // Incomplete pull: for a ticker that's ABSENT we can't tell \"delisted\" from\n  // \"its venue didn't return this run\". Defer — never move a counter or delete\n  // on a partial feed. ADDs from healthy venues (below) are unaffected.\n  if (!feedComplete) { held.push(ticker); continue; }\n  \n  // Deduped, not absent. Never a delisting candidate.\n  if (dedupedAway.has(ticker)) {\n    const meta = dedupedAway.get(ticker);\n    cleanup.push({ ticker, reason: `duplicate_isin_of_${meta.keptAs}` });\n    continue;\n  }\n\n  // Junk by construction — no waiting period needed.\n  const byCode = classifyCode(ticker);\n  if (!byCode.keep && !byCode.review) {\n    cleanup.push({ ticker, reason: byCode.reason });\n    continue;\n  }\n\n  const UNCONDITIONAL_DERIV = /^[A-Z]{2,4}WW$/;\n  if (UNCONDITIONAL_DERIV.test(ticker)) {\n    cleanup.push({ ticker, reason: 'warrant_ww_suffix' });\n    continue;\n  }\n  \n  const deriv = derivativeOf(ticker, allCodes);\n  if (deriv) {\n    cleanup.push({ ticker, reason: deriv });\n    continue;\n  }\n  if (byCode.review) {\n    reviewMine.push({ ticker, reason: byCode.reason });\n    continue;\n  }\n\n  // Looks like real common stock, absent from the entire feed.\n  const next = missCount + 1;\n  if (next >= MISS_THRESHOLD) delist.push({ ticker, misses: next });\n  else miss.push({ ticker, misses: next });\n}\n\n// -- Floor: threshold-crossers only ------------------------------------------\nconst delistPct = 100 * delist.length / mine.size;\nif (delist.length > MAX_DELISTS_ABS || delistPct > MAX_DELISTS_PCT) {\n  throw new Error(\n    `${delist.length} of ${mine.size} (${delistPct.toFixed(2)}%) have been ` +\n    `absent from the entire feed for ${MISS_THRESHOLD}+ consecutive runs — ` +\n    `above the ${MAX_DELISTS_ABS} / ${MAX_DELISTS_PCT}% floor. Sustained ` +\n    `absence at this scale means a venue dropped out of the pull, not that ` +\n    `these delisted. Check rows_by_exchange first. ` +\n    `First 20: ${delist.slice(0, 20).map((d) => d.ticker).join(', ')}. ` +\n    `(Separately: ${cleanup.length} CLEANUP, ${miss.length} MISS, ` +\n    `${parked.length} OUT_OF_SCOPE, ${reviewMine.length} REVIEW.)`\n  );\n}\n\n// -- Emit --------------------------------------------------------------------\nconst out = [];\nconst stamp = new Date().toISOString();\n\nconst push = (action, ticker, meta = {}) => out.push({\n  json: {\n    action,\n    // Factual: is this ticker absent from my universe table right now?\n    // True for ADD and for every REVIEW row I don't already hold.\n    missingFromMyUniverse: !mine.has(ticker),\n    // Routing: should this go to the ingest sub-workflow? ADD only.\n    // REVIEW rows are missing too, but deliberately not auto-ingested.\n    routeToAdd: action === 'ADD',\n    ticker,\n    name: meta.name ?? null,\n    exchange: meta.exchange ?? null,\n    isin: meta.isin ?? null,\n    drop_reason: meta.reason ?? null,\n    miss_count: meta.misses ?? null,\n    as_of: stamp,\n  },\n});\n\nfor (const t of toAdd)          push('ADD', t, eligible.get(t));\nfor (const r of cleanup)        push('CLEANUP', r.ticker, r);\nfor (const t of seen)           push('SEEN', t);\nfor (const r of miss)           push('MISS', r.ticker, { ...r, reason: 'absent_from_feed' });\nfor (const r of delist)         push('DELIST', r.ticker, { ...r, reason: 'absent_sustained' });\nfor (const r of parked)         push('OUT_OF_SCOPE', r.ticker, r);\nfor (const r of reviewMine)     push('REVIEW', r.ticker, r);\nfor (const [t, meta] of review) if (!mine.has(t)) push('REVIEW', t, meta);\n\nconst tally = (arr, key) => JSON.stringify(\n  arr.reduce((a, r) => { a[r[key]] = (a[r[key]] || 0) + 1; return a; }, {})\n);\n\nout.push({\n  json: {\n    action: 'SUMMARY',\n    missingFromMyUniverse: false,\n    exchange_rows_raw: exchangeRows.length,\n    exchange_eligible: eligible.size,\n    universe_size: mine.size,\n    adds: toAdd.length,\n    cleanups: cleanup.length,\n    seen_again: seen.length,\n    misses: miss.length,\n    delists: delist.length,\n    out_of_scope: parked.length,\n    reviews: reviewMine.length + [...review.keys()].filter((t) => !mine.has(t)).length,\n    // JSON strings, not arrays — n8n/jsonb rejects top-level arrays\n    rows_by_exchange: JSON.stringify(seenByExchange),\n    excluded_by_reason: JSON.stringify(excluded),\n    cleanup_by_reason: tally(cleanup, 'reason'),\n    parked_by_exchange: tally(parked, 'reason'),\n    review_by_reason: tally(reviewMine, 'reason'),\n    miss_sample: JSON.stringify(miss.slice(0, 100)),\n    delist_sample: JSON.stringify(delist.slice(0, 50)),\n    isin_duplicates: JSON.stringify(isinDupes.slice(0, 50)),\n    bad_vendor_isins: JSON.stringify(badIsins.slice(0, 50)),\n    as_of: stamp,\n    feed_complete: feedComplete,\n    shortfalls: JSON.stringify(shortfalls),\n    held_incomplete_feed: held.length,\n  },\n});\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1280,
+        -224
+      ],
+      "id": "1a122767-3d72-42c6-a894-e5b41eda29cb",
+      "name": "Comparison"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "BEGIN;\n\n-- ---------------------------------------------------------------------------------------\n-- Retire redundant tickers -- FLAG, DO NOT DELETE.  (rewritten 2026-09-25)\n--\n-- WHY THE DELETE HAD TO GO. The old body looped every public table with a ticker/symbol\n-- column and deleted the missing names, then deleted them from universe. That is why the\n-- price record is survivor-only: 0 of 6,423 tickers in daily_prices lack a universe row, so\n-- nothing that ever delisted kept its history. A 15-year backfill loaded into that regime is\n-- maximally survivor-biased the day it completes -- and the rows being erased are exactly the\n-- ones the ranking model's bottom decile is meant to learn from: stocks on the way to zero.\n--\n-- WHY IT IS DATA-DRIVEN, not payload-driven. Two things were checked before writing this:\n--   * universe.miss_count is 0 for all 5,594 common stocks -- nothing maintains it, so a rule\n--     keyed on \"miss_count >= 3\" would never fire;\n--   * of the 35 tickers currently flagged is_delisted, 30 are still trading -- the existing\n--     flags are simply wrong.\n-- Staleness is therefore derived from daily_prices: a ticker the market is still pricing is\n-- live, whatever any counter or previous flag says. That self-heals those 30 on the first run.\n--\n-- WHAT RETIREMENT MEANS NOW: universe.is_delisted = true, nothing deleted. Nothing downstream\n-- needs cleaning -- the price-driven objects (mv_relative_strength, mv_dtrend_hist,\n-- prebreakout, ML scoring) are date-anchored and drop a name with no recent bars on their own,\n-- and the fundamentals layer (v_fund_metrics, v_eval_*, mv_fund_metrics) already filters\n-- is_delisted.\n--\n-- REQUIRED COMPANION CHANGE, or this saves nothing (dead names keep being requested daily):\n--   MyCurrentUniverse  ->  select ticker from universe\n--                          where type = 'Common Stock'\n--                            and coalesce(is_delisted, false) = false\n-- ---------------------------------------------------------------------------------------\n\n-- The loader's own missing list, kept only for the diagnostic at the end: it is a same-day\n-- signal where price staleness needs the grace window to elapse.\ncreate temp table _del(ticker text primary key) on commit drop;\n\ninsert into _del(ticker)\nselect distinct trim(v->>'ticker')\nfrom json_array_elements($JSON$ {{ JSON.stringify($input.all().map(i => i.json)) }} $JSON$::json) v\nwhere nullif(trim(v->>'ticker'),'') is not null;\n\n-- Staleness in the MARKET's own sessions, not calendar days, so a long weekend or a missed\n-- load cannot retire anything. Grouped aggregate, not a per-ticker subquery: the correlated\n-- form takes >30s against 6.8M rows, this runs in ~0.6s.\ncreate temp table _stale on commit drop as\nwith mkt as (\n  select date, row_number() over (order by date desc) as sessions_ago\n  from (select distinct date from daily_prices where date > current_date - 90) d),\nlastbar as (\n  select p.ticker, max(p.date) as last_date\n  from daily_prices p\n  where p.date > current_date - 120\n  group by p.ticker)\nselect u.ticker,\n       lb.last_date,\n       coalesce(m.sessions_ago, 999) as sessions_since\nfrom universe u\nleft join lastbar lb on lb.ticker = u.ticker\nleft join mkt m on m.date = lb.last_date\nwhere u.type = 'Common Stock';\n\ndo $$\ndeclare\n  grace_sessions int := 10;    -- ~2 weeks of trading with no print before a name is retired\n  n_retired bigint; n_restored bigint; n_warning bigint; n_missing bigint;\nbegin\n  -- 1. RETIRE: the market has traded for grace_sessions sessions and this name has not printed.\n  update universe u\n     set is_delisted = true,\n         miss_count  = s.sessions_since,      -- finally gives the column a meaning\n         updated_at  = now()\n    from _stale s\n   where u.ticker = s.ticker\n     and coalesce(u.is_delisted, false) = false\n     and s.sessions_since >= grace_sessions;\n  get diagnostics n_retired = row_count;\n\n  -- 2. RESTORE: printing again (halt lifted, re-listing, or the flag was simply wrong).\n  --    This is what corrects the 30 flagged names that never stopped trading.\n  update universe u\n     set is_delisted = false,\n         miss_count  = 0,\n         updated_at  = now()\n    from _stale s\n   where u.ticker = s.ticker\n     and coalesce(u.is_delisted, false) = true\n     and s.sessions_since < grace_sessions;\n  get diagnostics n_restored = row_count;\n\n  -- 3. Keep miss_count current for the rest, so the warning list below is readable.\n  update universe u\n     set miss_count = s.sessions_since\n    from _stale s\n   where u.ticker = s.ticker\n     and coalesce(u.miss_count, -1) <> s.sessions_since;\n\n  select count(*) into n_warning from _stale\n   where sessions_since between 3 and grace_sessions - 1;\n  select count(*) into n_missing from _del;\n\n  raise notice 'retired %, restored %, % on warning (3-% sessions quiet), % in the loader''s missing list',\n               n_retired, n_restored, n_warning, grace_sessions - 1, n_missing;\n  raise notice 'price history is retained deliberately: delisted names are the part of the '\n               'record the ranking model has never been able to learn from';\nend $$;\n\nCOMMIT;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -816,
+        -16
+      ],
+      "id": "fe3c1ebb-e63d-4014-b32e-3cea749d95f3",
+      "name": "Drop Redundant Tickers",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update workflow_execution_status\nset execution_status = 0\nwhere workflow_id = 'pzwgcFjkzlsqV7FO'\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1536,
+        -1360
+      ],
+      "id": "0afa9a48-5a73-4132-981f-6b5cb7a9f89a",
+      "name": "Update Execution Log",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Input to the TickerUniverse HTTP node — one item per exchange code.\n *\n * NYSE returns only ~16 NYSE MKT strays, not the ~290-name NYSE American\n * board, so AMEX must be called separately. Try 'AMEX'; if it 404s or returns\n * a stub, fall back to 'NYSE MKT'.\n */\nreturn [\n  { json: { my_exchange: 'NYSE'   } },\n  { json: { my_exchange: 'NASDAQ' } },\n  { json: { my_exchange: 'BATS'   } },\n  { json: { my_exchange: 'AMEX'   } },\n  /*{ json: { my_exchange: 'LSE'   } },*/\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2160,
+        -656
+      ],
+      "id": "039fcd65-16a6-4daa-af68-645d1dbadc61",
+      "name": "Exchanges1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select ticker, max(date_diff) as days_ago, exchange from (\nselect eu.*\n, f.latest_filing\n, f.latest_period\n, case when f.latest_filing is null then eu.report_date - f.latest_period \nelse eu.report_date - f.latest_filing \n\tend as date_diff \nfrom earnings_upcoming eu \nleft join (\n\tselect ticker,\n\t       max(period_end)  as latest_period,\n\t       max(filing_date) as latest_filing,\n\t       max(as_of)       as latest_update      -- <<< added: newest fundamentals load\n\tfrom fundamentals_facts ff\n\tgroup by ticker) as f on f.ticker = eu.ticker\nwhere eu.period_end != f.latest_period\nand eu.report_date <= current_date - interval '1 days'\nand (f.latest_update is null or f.latest_update::date <> current_date)   -- <<< added: skip if already updated today\nAND EXISTS (\n                         SELECT 1 FROM universe u\n                         WHERE u.ticker = eu.ticker\n                         and u.industry != 'Shell Companies') \nand case when f.latest_filing is null then eu.report_date - f.latest_period \nelse eu.report_date - f.latest_filing \n\tend >0) as summary\ngroup by summary.ticker, summary.exchange\nhaving max(date_diff) > 90 and max(date_diff) < 365\norder by ticker asc;",
+        "options": {
+          "queryReplacement": "=={{ JSON.stringify($input.all().flatMap(i => Array.isArray(i.json) ? i.json : [i.json]).map(r => ({ ticker: r.ticker, exchange: r.exchange, report_date: r.report_date, period_end: r.period_end, before_after_market: r.before_after_market }))) }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1264,
+        -1056
+      ],
+      "id": "c4ff9190-6cd8-49a7-a514-d39da1d006bd",
+      "name": "Execute a SQL query3",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1936,
+        -656
+      ],
+      "id": "f7ede0e8-bf38-424c-b907-5f1c73dfa9ef",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2160,
+        -144
+      ],
+      "id": "e7a3b816-9d4b-4e2d-9dd7-6ae8cd2abbb3",
+      "name": "Loop Over Items2"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -816,
+        -240
+      ],
+      "id": "895af212-4fc4-419c-9888-098cc1d08c19",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "FmzVebzKsmoh0FJ6",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/FmzVebzKsmoh0FJ6",
+          "cachedResultName": "Stock Analysis - Fundamentals 🧱"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticker": "={{ $json.ticker }}",
+            "exchange": "={{ String($('Loop Over Items').item.json.exchange ?? '').trim().toUpperCase() === 'LSE' ? 'LSE' : 'US' }}"
+          },
+          "matchingColumns": [
+            "ticker"
+          ],
+          "schema": [
+            {
+              "id": "ticker",
+              "displayName": "ticker",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "exchange",
+              "displayName": "exchange",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -592,
+        -240
+      ],
+      "id": "2a8f981e-8683-4557-bfbb-4a4ffcdef92f",
+      "name": "Fundamentals 🧱1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/MGeRvgG8w9Xp2Ui9",
+          "cachedResultName": "Ticker & Classification - build your own (not included)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -592,
+        -16
+      ],
+      "id": "532df574-0f79-4f94-b6c1-cbee5ab1040a",
+      "name": "Indusrty Classification 🔧 (DISABLED - build your own classification)",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with daily as (\n  select dp.date, count(*) as loaded\n  from daily_prices dp\n  join universe u on u.ticker = dp.ticker and u.type = 'Common Stock'\n  where dp.date >= current_date - 30\n  group by dp.date\n),\nlatest as (select max(date) as d from daily),\nbase as (                                   -- median of the 10 days BEFORE the one being checked\n  select (percentile_cont(0.5) within group (order by loaded))::numeric as med\n  from (select loaded from daily, latest where date < latest.d order by date desc limit 10) z\n),\ncur as (select loaded from daily, latest where date = latest.d)\nselect l.d                                             as load_date,\n       c.loaded,\n       round(b.med)                                    as baseline,\n       round(c.loaded::numeric / nullif(b.med, 0), 3)  as ratio,\n       case\n         when l.d < (current_date - case when extract(dow from current_date) = 1 then 3 else 1 end) then 'STALE'\n         when c.loaded::numeric / nullif(b.med, 0) < 0.97 then 'PARTIAL'\n         else 'OK'\n       end                                             as verdict\nfrom latest l, base b, cur c;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1712,
+        -752
+      ],
+      "id": "883391ea-a1f0-40cb-a2b9-064666eb6070",
+      "name": "Daily Count",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "839feb8b-dad1-47c8-ba2a-01c5c194f9bb",
+              "leftValue": "={{ $json.verdict }}",
+              "rightValue": "PARTIAL",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1488,
+        -752
+      ],
+      "id": "f4cee84d-46e6-4e56-a799-3e29a24cae4c",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "minutes"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1280,
+        -544
+      ],
+      "id": "93f81e31-1b1a-4a4d-9b58-55a294fd880b",
+      "name": "Wait",
+      "webhookId": "d19abfbc-e42f-41bb-962c-de1358e79c63"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ EOD Prices Delayed ⏳",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1280,
+        -752
+      ],
+      "id": "cf5918af-137d-4dd1-b24e-301ab667817e",
+      "name": "Delay",
+      "webhookId": "b815504a-dc09-4574-8b3e-b14ffa9ceba8",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uYAUki97dNeO3H9L",
+          "name": "your_trading_bot"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -1920,
+        -224
+      ],
+      "id": "99c2a0c7-2aa8-4180-b847-543bc7c675f4",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "truncate position_risk_recos",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1744,
+        -1360
+      ],
+      "id": "565f7dd6-80b1-4ec6-b737-37f225c81980",
+      "name": "Truncate Recos",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "paJw5oryPsHYtHZN",
+          "name": "Market Data"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten the EODHD earnings calendar to one row per (ticker, exchange, report_date).\n//\n// DEDUPE ON (ticker, exchange, report_date): a 21-day window can legitimately\n// contain two announcements for the same company, AND the same symbol can exist\n// on multiple exchanges (e.g. DGNOF.US vs a .LSE listing). Keying on ticker\n// alone — or even (ticker, report_date) — lets an LSE row overwrite the US row\n// for an overlapping symbol. The exchange is part of the identity.\n//\n// LAST WINS on an exact duplicate key: a later entry in the payload is the more\n// recent statement of the same event.\n\n// Exchanges to keep. Set to null to accept every exchange the feed returns.\nconst ALLOWED_EXCHANGES = new Set(['US'/*, 'LSE'*/]);\n\nconst seen = new Map();\nlet scanned = 0, skippedExchange = 0, malformed = 0;\n\nfor (const item of $input.all()) {\n  const list = item?.json?.earnings;\n  if (!Array.isArray(list)) continue;\n\n  for (const earning of list) {\n    scanned++;\n    const code = earning?.code;\n    if (typeof code !== 'string') { malformed++; continue; }\n\n    // Split on the LAST dot: a ticker may contain dots, the exchange suffix never does.\n    const dot = code.lastIndexOf('.');\n    if (dot <= 0) { malformed++; continue; }\n\n    const ticker     = code.slice(0, dot).trim().toUpperCase();\n    const exchange   = code.slice(dot + 1).trim().toUpperCase();\n    const reportDate = earning?.report_date;\n\n    if (!ticker || !exchange || !reportDate) { malformed++; continue; }\n    if (ALLOWED_EXCHANGES && !ALLOWED_EXCHANGES.has(exchange)) { skippedExchange++; continue; }\n\n    seen.set(`${ticker}|${exchange}|${reportDate}`, {\n      ...earning,\n      ticker,\n      exchange,\n      code: undefined,\n    });\n  }\n}\n\nconst output = [...seen.values()].map(({ code, ...rest }) => ({ json: rest }));\n\n// Sorted nearest-first so a truncated load still holds the most urgent dates.\noutput.sort((a, b) => String(a.json.report_date).localeCompare(String(b.json.report_date)));\n\nif (output.length) {\n  output[0].json._diag = {\n    scanned,\n    emitted: output.length,\n    duplicates_removed: scanned - skippedExchange - malformed - output.length,\n    exchange_skipped: skippedExchange,\n    malformed_skipped: malformed,\n  };\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1712,
+        -1056
+      ],
+      "id": "d3d9ed80-6f16-431b-9482-86de526ebd60",
+      "name": "Next 60 Days"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Delete table or rows1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get IBKR IDs1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Exchanges1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TickerUniverse": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exchanges": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IncrementalPriceLoad": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BulkExchangeEOD": {
+      "main": [
+        [
+          {
+            "node": "IncrementalPriceLoad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get IBKR IDs1": {
+      "main": [
+        [
+          {
+            "node": "Delete table or rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gateway Reconnect 🔌",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gateway Reconnect 🔌": {
+      "main": [
+        [
+          {
+            "node": "Get IBKR IDs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PricesLoaded": {
+      "main": [
+        []
+      ]
+    },
+    "Delete table or rows1": {
+      "main": [
+        [
+          {
+            "node": "Delete Ackd SL Cxl/Rbk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Ackd SL Cxl/Rbk": {
+      "main": [
+        [
+          {
+            "node": "Truncate Recos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Indices EOD": {
+      "main": [
+        [
+          {
+            "node": "IncrementalPriceLoad1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IncrementalPriceLoad1": {
+      "main": [
+        [
+          {
+            "node": "PricesLoaded",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Exchanges",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upcoming Earnings": {
+      "main": [
+        [
+          {
+            "node": "Next 60 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Upcoming Earnings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Upcoming Earnings Table": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MyCurrentUniverse": {
+      "main": [
+        [
+          {
+            "node": "Comparison",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Drop Redundant Tickers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Drop Redundant Tickers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comparison": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exchanges1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fundamentals 🧱": {
+      "main": [
+        []
+      ]
+    },
+    "Execute a SQL query3": {
+      "main": [
+        [
+          {
+            "node": "Fundamentals 🧱",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "Daily Count",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "BulkExchangeEOD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items2": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TickerUniverse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drop Redundant Tickers": {
+      "main": [
+        []
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Indusrty Classification 🔧",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fundamentals 🧱1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fundamentals 🧱1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Count": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Delay",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Indices EOD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Exchanges1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delay": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "MyCurrentUniverse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete table or rows": {
+      "main": [
+        []
+      ]
+    },
+    "Update Execution Log": {
+      "main": [
+        []
+      ]
+    },
+    "Truncate Recos": {
+      "main": [
+        [
+          {
+            "node": "Update Execution Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Next 60 Days": {
+      "main": [
+        [
+          {
+            "node": "Update Upcoming Earnings Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "hFzGgakH6rLpa0MU",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timezone": "Etc/UTC",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "node:Schedule Trigger1": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "versionId": "352f2212-c063-4938-be08-9af4c6161644",
+  "activeVersionId": "352f2212-c063-4938-be08-9af4c6161644",
+  "versionCounter": 2539,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-06-05T03:49:59.880Z",
+      "createdAt": "2026-06-05T03:49:59.880Z",
+      "role": "workflow:owner",
+      "workflowId": "pzwgcFjkzlsqV7FO",
+      "projectId": "PjanIvva1Mlx8hZV",
+      "project": {
+        "updatedAt": "2026-02-14T16:55:09.426Z",
+        "createdAt": "2026-02-14T16:15:58.481Z",
+        "id": "PjanIvva1Mlx8hZV",
+        "name": "Jack Eldridge <you@example.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "b5463656-ed61-440e-acc2-9c43a8cb5056"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 352f2212",
+    "description": ""
+  }
+}
