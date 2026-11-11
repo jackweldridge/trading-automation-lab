@@ -388,7 +388,6 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "mode": "each",
         "options": {
           "waitForSubWorkflow": true
         }
@@ -445,7 +444,6 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "mode": "each",
         "options": {
           "waitForSubWorkflow": true
         }
@@ -514,7 +512,6 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "mode": "each",
         "options": {}
       },
       "type": "n8n-nodes-base.executeWorkflow",

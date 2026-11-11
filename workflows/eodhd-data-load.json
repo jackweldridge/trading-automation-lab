@@ -918,7 +918,6 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "mode": "each",
         "options": {}
       },
       "type": "n8n-nodes-base.executeWorkflow",
@@ -1223,7 +1222,6 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "mode": "each",
         "options": {}
       },
       "type": "n8n-nodes-base.executeWorkflow",
